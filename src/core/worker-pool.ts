@@ -8589,6 +8589,7 @@ export async function forkSession(
     childTitle,
     targetChatType,
     targetScope,
+    { source: 'fork', inherit: ds.session },
   );
   // Provenance + fork wiring. cliSessionId points at the SOURCE's CLI id: the
   // child's first spawn resumes it and forks forward (pendingForkSession), then
@@ -10778,7 +10779,10 @@ export function forkWorker(
       ? false
       : (botCfg.codexRpcInput === true && RPC_CAPABLE_CLIS.has(agentCfg.cliId)) || config.codexRpcInputDefault,
     ...(existingAppServerEndpoint ? { existingAppServerEndpoint } : {}),
-    codexAuthSync: botCfg.codexAuthSync ?? 'shared',
+    codexAuthSync: ds.session.cliInstanceBinding
+      ? (ds.session.cliInstanceBinding.authMode === 'isolated' ? 'isolated' : 'shared')
+      : botCfg.codexAuthSync ?? 'shared',
+    cliInstanceBinding: ds.session.cliInstanceBinding,
     // Trigger-user CLI auth: the worker needs the policy to know which tools to
     // wrap at spawn. Absent → the worker installs nothing and PATH is untouched.
     ...(botCfg.triggerUserAuth ? { triggerUserAuth: botCfg.triggerUserAuth } : {}),
@@ -10789,7 +10793,7 @@ export function forkWorker(
     // Per-bot env (bots.json `env`) — injected into the CLI process only (e.g.
     // ANTHROPIC_BASE_URL/AUTH_TOKEN for a GLM/3rd-party bot). Adopt sessions are
     // observed, not driven, so forkAdoptWorker intentionally omits it.
-    env: ds.session.cliLaunchSnapshot ? undefined : botCfg.env,
+    env: ds.session.cliLaunchSnapshot || ds.session.cliInstanceBinding ? undefined : botCfg.env,
     // Freeze the normalized sparse reply style at worker spawn. Both the
     // session-rendered botmux-send guide and the CLI card renderer consume the
     // same env snapshot, so a dashboard edit cannot split their behavior inside
@@ -10821,7 +10825,7 @@ export function forkWorker(
     // sandbox stays independently driven worker-side by sandboxRequested
     // (cfg.sandbox || cfg.readIsolation || BOTMUX_SANDBOX=1); session.sandbox is
     // frozen from botCfg.sandbox at create time, so "follow local sandbox" holds.
-    readIsolation: botCfg.readIsolation === true,
+    readIsolation: ds.session.cliInstanceBinding?.source && ds.session.cliInstanceBinding.source !== 'legacy' ? false : botCfg.readIsolation === true,
     readDenyExtraPaths: botCfg.readDenyExtraPaths ?? [],
     // Identifies THIS daemon lifetime. Stamped onto isolated panes so the worker
     // can tell a suspend→resume reattach (same boot id, still isolated) from a
@@ -15138,6 +15142,7 @@ export function adoptSandboxBlocked(
 }
 
 export function forkAdoptWorker(ds: DaemonSession, opts?: { restoredFromMetadata?: boolean; prompt?: string; turnId?: string }): void {
+  if (ds.session.cliInstanceBinding) throw new Error('External adoption cannot carry a Codex instance binding');
   if (isSessionTransferring(ds)) {
     logger.warn(`[${tag(ds)}] Adopt worker fork refused during routing transfer`);
     return;
@@ -15740,7 +15745,7 @@ function cleanupPersistentBackendSessions(
       .map(s => backend.sessionName(s.sessionId)),
   );
   const runtimeNames = new Set(
-    runtimeSessionRows.filter(belongsToBackend).map(s => backend.sessionName(s.sessionId)),
+    [...runtimeSessionRows, ...activeSessions_.filter(s => s.cliInstanceBinding)].filter(belongsToBackend).map(s => backend.sessionName(s.sessionId)),
   );
   const ownedSessions = [
     ...storedSessions.filter(belongsToBackend),
@@ -15889,6 +15894,7 @@ function cleanupPersistentBackendSessions(
     killManagedExactHerdrTargets(true);
     for (const session of activeSessions_) {
       if (!belongsToBackend(session)) continue;
+      if (session.cliInstanceBinding) continue;
       // The remote TUI deliberately uses cliId=codex even when the Bot's
       // default/new-session runtime remains codex-app. This is a shared-adopt
       // binding, not a stale CLI selection, so keep its bmx-* client alive for

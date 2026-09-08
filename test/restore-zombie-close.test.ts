@@ -1352,6 +1352,22 @@ describe('closeCliMismatchedSessionsForBot — runtime CLI hot-switch sweep', ()
     expect(wp.registry!.get(sessionKey('om_rt_fresh', 'app_test'))).toBeDefined();
   });
 
+  it('keeps instance-bound Codex sessions across a different bot CLI/runtime default', async () => {
+    const s = makeActivePersistentSession('om_instance_sticky');
+    s.cliId = 'codex';
+    s.agentFrozen = true;
+    s.cliInstanceBinding = { version: 1, source: 'pool', instanceId: 'a', cliId: 'codex', codexHome: '/private/instance-a', authMode: 'isolated' };
+    sessionStore.updateSession(s);
+    const ds = registerDs(s);
+    bot.cliId = 'traex';
+    bot.cliPathOverride = '/different/runtime';
+    const outcome = await closeCliMismatchedSessionsForBot('app_test');
+    expect(outcome).toMatchObject({ closed: 0 });
+    expect(closeSession).not.toHaveBeenCalledWith(s.sessionId);
+    expect(wp.registry!.get(sessionKey(s.rootMessageId, 'app_test'))).toBe(ds);
+    expect(sessionStore.getSession(s.sessionId)?.status).toBe('active');
+  });
+
   it('closes wrapper-axis mismatches for frozen sessions', async () => {
     const s = makeActivePersistentSession('om_rt_wrapper');
     s.wrapperCli = 'aiden x claude';

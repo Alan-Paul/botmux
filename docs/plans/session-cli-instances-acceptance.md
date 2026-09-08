@@ -1,0 +1,80 @@
+# 会话级 Codex 实例：验收记录
+
+状态：2026-09-08 本地回归、真实双账号和飞书端到端验收通过。Linux 实机与突然断电场景未验证。配置说明见 [使用文档](../codex-instances.md)，设计依据见 [方案](session-cli-instances.md)。
+
+本文只保留可公开的验证方法与结果；账号标识、群名、消息/会话 ID、本机绝对路径和原始部署备份不进入仓库。
+
+## 自动化验收范围
+
+自动化测试使用临时数据根、假凭据和受控子进程，不登录真实账号、不消费额度、不发送飞书消息。tmux 使用独立 socket，不连接现有 server；测试结束清理自身进程。
+
+| 门槛 | 已验证行为 |
+| --- | --- |
+| 权重 | 缺省 1:1；3:1 区间边界；拒绝零、负数、小数、字符串、null 和溢出 |
+| 目录 | 显式绝对路径、规范路径唯一、非嵌套、0700/0600；拒绝软链和硬链凭据 |
+| 来源 | 普通飞书新建进入池；schedule/HTTP/workflow 默认路由；external 不参与 |
+| 持久化 | 先提交再发布；实际 SQLite 重读；失败回滚；陈旧对象不能抹除或修改 binding |
+| 恢复 | 调整权重、默认实例、ID→home 映射后，旧会话/排队/fork 保持原 binding/runtime |
+| 并发 | 实际入站 FIFO 与 SQLite 验证同一话题首条消息只创建一个绑定 |
+| 环境 | 子进程收到冻结 CODEX_HOME；清除继承的 API 身份覆盖项；不复制全局 auth |
+| 失败 | 缺失 home 或候选无效时拒绝；启动失败不换账号；默认失效不回退全局 |
+| tmux | 持久 identity 不匹配或丢失时拒绝 attach，保留原 pane |
+| 管理 | init/login/check 使用相同映射；已有登录重登需 --reauth；身份明确为 unverified |
+| 兼容 | 无池 CLI、旧会话、工作流快照、owner 权限和配置写保护回归 |
+| worker | 真实 worker IPC→workflow PTY→假 Codex，验证环境、MCP 准备顺序与缺失目录拒绝 |
+
+同一目录被管理员人工换号不在自动检测范围；目录绑定不是强账号身份保证。
+
+## 可复跑命令与结果
+
+环境：macOS arm64、Node 24.2.0、Bun 1.4.0。功能分支已合入主仓基准 c5366fb9b；未修改依赖或版本号。
+
+```sh
+bun run test -- test/session-cli-instances-acceptance.test.ts test/session-store.test.ts test/session-store-sqlite.test.ts test/transcript-resolver-bot-home.test.ts test/transcript-resolver-symlink.test.ts test/tmux-backend-env.test.ts test/bot-config-store.test.ts test/config-store.test.ts test/setup-bots-store.test.ts test/cli-runtime.test.ts test/session-card-model.test.ts test/codex-adapter-history-ownership.test.ts test/daemon-rename-route.test.ts test/workflow-v3-ephemeral-pool.test.ts test/restore-zombie-close.test.ts test/codex-auth-sync-worker-wiring.test.ts test/worker-codex-instance.integration.test.ts test/codex-rpc-lifecycle.test.ts test/command-handler.test.ts test/card-handler-repo-select.test.ts test/trigger-session-root-message.test.ts test/session-resume.test.ts test/scheduler-silent-execute.test.ts test/fork-session.test.ts test/cli-selection.test.ts test/schedule-model-override.test.ts --maxWorkers=2
+nice -n 10 bun run build
+git diff --check
+```
+
+- 26 个测试文件：1236 通过、5 跳过、0 失败，18.13 秒；没有跑全仓 e2e。
+- 两个新增验收文件单独复跑：39 通过、0 失败。
+- 完整构建通过（含源码、脚本、test mocks 类型检查、Dashboard 打包、dist/资源审计）；runtime build id f297e746d28a。
+- git diff --check 通过；自动化测试无残留 CLI/tmux 进程。
+
+## 双真实账号与冷恢复
+
+在独立授权下，使用同一个 Codex CLI 0.153.4 可执行文件和两个不同账号的 CODEX_HOME：
+
+1. GPT-5.5 短文本问答分别返回 A_OK、B_OK。以只读沙箱和不调用工具的提示运行，忽略用户配置；不把该结果当作全部插件/配置已验证。
+2. 真实实例预检拒绝原有 0755 目录及未显式设置文件凭据存储的配置。经确认收紧权限并设置根 cli_auth_credentials_store=file 后，两个 home 均通过。
+3. 生产 createSession 在临时 SQLite 持久化两个实例绑定，测试固定 RNG 分别覆盖 A/B。
+4. 全新进程重读，在测试配置里交换 ID→home 映射、改变默认实例和权重；旧绑定、runtime 与原生 thread ID 不变。
+5. 通过生产环境解析器、启动 shell 和独立 tmux 调用真实 codex exec resume，分别正确回忆各自标记；退出码为 0，transcript 在各自 home 中。
+6. 测试期间插件目录请求出现过网络/403 警告，但四轮模型回复成功；不宣称插件网络全部正常。
+
+这一阶段的首轮原生会话由直接 CLI 创建，不能单独证明 worker 自动发现会话 ID。真实飞书链路另见下一节。
+
+## 真实飞书新话题与续聊
+
+经授权部署到本机现有服务，仅为目标 Codex Bot 配置 A/B 等权池、默认 A；其他 Bot 的配置不变。重启前确认在线会话全部空闲，备份配置和一致性 SQLite。重启后 45 idle / 15 dormant / 358 closed 与重启前一致，意外关闭为 0；255 条原有 Codex 记录保留 legacy 路由。
+
+用户在同一个飞书话题群发两个真正新话题，然后分别在原话题追问 CODEX_HOME：
+
+| 检查项 | 第一话题 | 第二话题 |
+| --- | --- | --- |
+| 持久化来源/实例 | pool / a | pool / b |
+| 实际 CLI 环境 | 账号 A 的 home | 账号 B 的 home |
+| 执行程序 | 同一 Codex 安装二进制 | 同一 Codex 安装二进制 |
+| 首轮飞书最终回复 | 已收到 | 已收到 |
+| 原话题续聊 | 已收到 | 已收到 |
+| 续聊后 instanceId / 原生 thread ID | 均未变化 | 均未变化 |
+
+核对依据同时包括生产 SQLite、运行进程环境、各 home 内 transcript、daemon/worker 入站日志及飞书消息读取 API，未只依赖模型自述。最终两会话均为 idle。
+
+该实测覆盖真实飞书→live daemon/worker→tmux/真实 Codex→飞书最终回复，以及同话题续聊保持绑定。两个样本实际命中 A/B，不证明统计比例；非均匀权重通过可注入 RNG 的确定性测试验证。
+
+## 限制与回滚
+
+- 未执行 Linux Devbox 部署、Windows 实例池、突然断电、真实额度耗尽或账号续期异常测试。
+- v1 普通池仅支持本机 Codex+tmux；不支持任意 bot env、wrapper、sandbox/readIsolation、external app server 或混合 CLI。
+- enabled=false 只关闭随机分配，不撤销已绑定会话；不要直接降级到忽略 binding 的旧版本。
+- 真实部署所用 worktree 及依赖目录必须保留；备份不可在产生新会话后盲目覆盖数据库。
