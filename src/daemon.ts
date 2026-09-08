@@ -82,6 +82,7 @@ import {
   type VcMeetingConsumerAgentConfig,
   type VcMeetingConsumerProfileConfig,
 } from './bot-registry.js';
+import { resolveHiddenStreamingCardButtons } from './im/lark/streaming-card-buttons.js';
 import { setDisplayNameRefresher, findConfigField, applyConfigField } from './services/bot-config-store.js';
 import { registerPinStreamingCardChangeHandler } from './services/pin-streaming-card-change.js';
 import { getSkillFeedbackStore } from './services/skill-feedback-store.js';
@@ -4943,6 +4944,7 @@ function beginNewTurn(ds: DaemonSession, title: string, turnId: string): void {
       // (「已处理 · 判定无需回复」), not a misleading 「等待输入」.
       silentIdleCardFlag(ds),
       dshRuntimeForSession(ds),
+      resolveHiddenStreamingCardButtons(getBot(ds.larkAppId).config),
     );
     scheduleCardPatch(ds, frozenCard);
 
@@ -4974,6 +4976,7 @@ function beginNewTurn(ds: DaemonSession, title: string, turnId: string): void {
   // while the previous turn is still running) and must not relabel this card.
   ds.currentTurnId = turnId;
   ds.usageLimit = undefined;
+  ds.quotaFallbackAttemptToken = undefined;
   ds.streamCardPending = true;
   ds.streamCardPendingTurnId = turnId;
   ds.streamCardTurnGeneration = (ds.streamCardTurnGeneration ?? 0) + 1;
@@ -20873,6 +20876,7 @@ async function handleThreadReplyAdmitted(
       ds.usageLimitRetryTimer = undefined;
     }
     ds.usageLimit = undefined;
+    ds.quotaFallbackAttemptToken = undefined;
     ds.currentTurnTitle = parsed.content.substring(0, 50);
     // The cosmetic freeze step (above) is gated on a live worker. With no
     // worker we just park the current card in frozenCards — the upcoming
@@ -21528,6 +21532,7 @@ async function handleDocCommentAdmitted(ctx: DocCommentContext): Promise<boolean
       logger.info(`[${tag(ds)}] Worker not running for doc-comment, re-forking...`);
       if (ds.usageLimitRetryTimer) { clearTimeout(ds.usageLimitRetryTimer); ds.usageLimitRetryTimer = undefined; }
       ds.usageLimit = undefined;
+      ds.quotaFallbackAttemptToken = undefined;
       ds.currentTurnTitle = text.substring(0, 50);
       parkStreamCard(ds);
       ds.streamCardId = undefined;

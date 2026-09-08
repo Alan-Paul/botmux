@@ -3,6 +3,7 @@ import type { CliRuntimeConfig as SharedCliRuntimeConfig } from '../../adapters/
 import type { FeedbackPolicyLayer } from '../../services/feedback-policy-resolver.js';
 import type { ReplyStyleConfig } from '../../im/lark/reply-card-style.js';
 import type { CodexReasoningEffort } from '../../services/codex-reasoning-effort.js';
+import type { StreamingCardButtonId } from '../../im/lark/streaming-card-buttons.js';
 
 export type CliOption = {
   id: string;
@@ -107,6 +108,7 @@ export type BotDefaultsRow = {
   usageDisplay?: 'streaming' | 'footer' | 'off';
   usageSupported?: boolean;
   disableStreamingCard?: boolean;
+  hiddenStreamingCardButtons?: StreamingCardButtonId[];
   pinStreamingCard?: boolean;
   silentTurnReactions?: boolean;
   codexAppCleanInput?: boolean;
@@ -123,6 +125,17 @@ export type BotDefaultsRow = {
   senderTag?: boolean;
   overloadAlert?: boolean;
   botToBotSameDir?: boolean;
+  quotaFallbackBot?: {
+    enabled: true;
+    targetAppId: string;
+    kinds: Array<'usage' | 'rate'>;
+    message: string;
+  } | null;
+  online?: boolean;
+  startupBlocked?: {
+    reason: 'quota_fallback_cycle';
+    cycle: string[];
+  };
   summaryRange?: { limit?: number; sinceHours?: number };
   summaryMemory?: boolean;
   summaryMemoryPath?: string;

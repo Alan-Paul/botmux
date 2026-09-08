@@ -8,6 +8,7 @@ import { basename as pathBasename, dirname, join } from 'node:path';
 import { closeResidualIsLocal, describeCloseResidual } from '../../core/close-residual.js';
 import { config } from '../../config.js';
 import { getBot, getAllBots, getOwnerOpenId } from '../../bot-registry.js';
+import { resolveHiddenStreamingCardButtons } from './streaming-card-buttons.js';
 import { canOperate, canTalk, canRunDaemonCommand } from './event-dispatcher.js';
 import { updateMessage, deleteMessage, replyMessage, sendMessage, sendUserMessage, sendEphemeralCard, getMessageDetail, isHumanOpenId, resolveUserUnionId as defaultResolveUserUnionId } from './client.js';
 import { buildSessionCard, buildStreamingCard, buildTuiPromptCard, buildTuiPromptProcessingCard, buildGrantResultCard, getCliDisplayName, truncateContent, buildConfigCard, buildConfigQuotaCard, buildConfigTextCard, CONFIG_UNSET, buildRepoSelectCard } from './card-builder.js';
@@ -3146,6 +3147,7 @@ export async function handleCardAction(data: CardActionData, deps: CardHandlerDe
           codexServiceTierBadge(sessionCliId(ds), ds.codexServiceTier),
           silentIdleCardFlag(ds),
           dshRuntimeForSession(ds),
+          resolveHiddenStreamingCardButtons(getBot(ds.larkAppId).config),
         );
         scheduleCardPatch(ds, cardJson);
       }
@@ -3659,6 +3661,7 @@ export async function handleCardAction(data: CardActionData, deps: CardHandlerDe
               codexServiceTierBadge(effectiveCliId, ds.codexServiceTier),
               silentIdleCardFlag(ds),
               dshRuntimeForSession(ds),
+              resolveHiddenStreamingCardButtons(getBot(ds.larkAppId).config),
             );
             updateMessage(ds.larkAppId, cardMessageId, cardJson).catch(err =>
               logger.debug(`[${tag(ds)}] Failed to migrate unknown frozen card: ${err}`),
@@ -3707,6 +3710,7 @@ export async function handleCardAction(data: CardActionData, deps: CardHandlerDe
           effectiveCliId === 'codex' ? frozen.codexServiceTierBadge : undefined,
           frozen.silentIdle === true,
           dshRuntimeForSession(ds),
+          resolveHiddenStreamingCardButtons(getBot(ds.larkAppId).config),
         );
         updateMessage(ds.larkAppId, frozen.messageId, cardJson).catch(err =>
           logger.debug(`[${tag(ds)}] Failed to migrate frozen card: ${err}`),
@@ -3753,6 +3757,7 @@ export async function handleCardAction(data: CardActionData, deps: CardHandlerDe
           codexServiceTierBadge(effectiveCliId, ds.codexServiceTier),
           silentIdleCardFlag(ds),
           dshRuntimeForSession(ds),
+          resolveHiddenStreamingCardButtons(getBot(ds.larkAppId).config),
         );
         if (cardMessageId && cardMessageId !== ds.streamCardId) {
           updateMessage(ds.larkAppId, cardMessageId, cardJson).catch(err =>
@@ -3824,6 +3829,7 @@ export async function handleCardAction(data: CardActionData, deps: CardHandlerDe
           codexServiceTierBadge(effectiveCliId, ds.codexServiceTier),
           silentIdleCardFlag(ds),
           dshRuntimeForSession(ds),
+          resolveHiddenStreamingCardButtons(getBot(ds.larkAppId).config),
         );
         if (cardMessageId && cardMessageId !== ds.streamCardId) {
           updateMessage(ds.larkAppId, cardMessageId, cardJson).catch(err =>
@@ -3887,6 +3893,7 @@ export async function handleCardAction(data: CardActionData, deps: CardHandlerDe
           codexServiceTierBadge(effectiveCliId, ds.codexServiceTier),
           silentIdleCardFlag(ds),
           dshRuntimeForSession(ds),
+          resolveHiddenStreamingCardButtons(getBot(ds.larkAppId).config),
         );
         return {
           toast: { type: 'success', content: t('card.action.stop_sent', { cliName: sessionCliDisplayName(ds) }, locDs) },
@@ -3979,6 +3986,7 @@ export async function handleCardAction(data: CardActionData, deps: CardHandlerDe
           codexServiceTierBadge(effectiveCliId, ds.codexServiceTier),
           silentIdleCardFlag(ds),
           dshRuntimeForSession(ds),
+          resolveHiddenStreamingCardButtons(getBot(ds.larkAppId).config),
         );
         try { return JSON.parse(cardJson); } catch { /* fall through */ }
       }

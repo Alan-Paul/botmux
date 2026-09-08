@@ -78,3 +78,12 @@ git diff --check
 - v1 普通池仅支持本机 Codex+tmux；不支持任意 bot env、wrapper、sandbox/readIsolation、external app server 或混合 CLI。
 - enabled=false 只关闭随机分配，不撤销已绑定会话；不要直接降级到忽略 binding 的旧版本。
 - 真实部署所用 worktree 及依赖目录必须保留；备份不可在产生新会话后盲目覆盖数据库。
+
+## PR 合入最新主仓后的验证
+
+提交 PR 时上游已推进至 `7d83eabdc`。在另一个独立 worktree 合入这 4 个提交，未切换或重建正在运行的部署目录。
+
+- 解决两个配置写入口的冲突：同时保留实例 binding 配置保护与上游 `quotaFallbackBot` 图防环校验，没有覆盖任一方规则。
+- 在上述 26 文件命令基础上追加 `test/quota-fallback.test.ts`、`test/quota-fallback-worker.test.ts`、`test/bot-registry.test.ts`，保持 `--maxWorkers=2`：29 个文件，1410 通过、5 跳过、0 失败，19.53 秒。
+- `nice -n 10 bun run build` 再次通过，独立构建 runtime build id `8e4ea29d5158`；`git diff --check` 通过，无残留测试 CLI。
+- 真实飞书验收对应上一节已部署构建 `f297e746d28a`；合入上游后的 PR 版本完成回归与构建，但未再次部署或重跑飞书链路。两种验证状态不混为一谈。

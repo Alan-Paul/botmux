@@ -60,6 +60,11 @@ import { ensureBackendAvailable } from '../services/backend-availability.js';
 import type { BackendType } from '../adapters/backend/types.js';
 import * as persistentBackend from './persistent-backend.js';
 import * as cardPrefsStore from '../services/card-prefs-store.js';
+import {
+  isStreamingCardButtonId,
+  normalizeHiddenStreamingCardButtons,
+  type StreamingCardButtonId,
+} from '../im/lark/streaming-card-buttons.js';
 import * as substituteModeStore from '../services/substitute-mode-store.js';
 import { claimPromptContext } from '../services/prompt-context-store.js';
 import { createCliAdapterSync } from '../adapters/cli/registry.js';
@@ -112,6 +117,11 @@ import { config } from '../config.js';
 import { buildSafeInsightConversation, buildSafeInsightOverview, buildSafeInsightReport, buildSafeInsightTurnDetail } from '../services/insight/report.js';
 import type { InsightConversationRole, InsightDetail, InsightSeverity, SafeSpanTag } from '../services/insight/types.js';
 import { readRawConfig, findEntryIndex, requireConfigPath, rmwBotEntry } from '../services/config-store.js';
+import {
+  findQuotaFallbackCycle,
+  normalizeQuotaFallbackBotConfig,
+  type QuotaFallbackBotConfig,
+} from '../services/quota-fallback.js';
 import { setDefaultLocale, localeForBot, t } from '../i18n/index.js';
 import { isLocale, type Locale } from '../i18n/types.js';
 import { readGlobalConfig } from '../global-config.js';
@@ -5050,6 +5060,7 @@ ipcRoute('GET', '/api/bot-default-oncall', async (_req, res) => {
     // that is always empty — the CLI has no resolvable transcript).
     usageSupported: cliSupportsNativeUsage(cliId),
     disableStreamingCard: cardPrefs.disableStreamingCard,
+    hiddenStreamingCardButtons: cardPrefs.hiddenStreamingCardButtons,
     pinStreamingCard: cardPrefs.pinStreamingCard,
     silentTurnReactions: cardPrefs.silentTurnReactions,
     codexAppCleanInput: cardPrefs.codexAppCleanInput,
@@ -5068,6 +5079,10 @@ ipcRoute('GET', '/api/bot-default-oncall', async (_req, res) => {
     autoStartOnNewTopic: cardPrefs.autoStartOnNewTopic,
     regularGroupReplyMode: cardPrefs.regularGroupReplyMode,
     regularGroupMentionMode: cardPrefs.regularGroupMentionMode,
+    quotaFallbackBot: (() => {
+      try { return getBot(cachedLarkAppId).config.quotaFallbackBot ?? null; }
+      catch { return null; }
+    })(),
     substituteMode: substituteModeStore.getBotSubstituteMode(cachedLarkAppId) ?? null,
     feedback: (() => { try { return getBot(cachedLarkAppId).config.feedback ?? null; } catch { return null; } })(),
     docSubscribeDefaultMode: cardPrefs.docSubscribeDefaultMode,
@@ -5101,13 +5116,81 @@ ipcRoute('GET', '/api/bot-default-oncall', async (_req, res) => {
   });
 });
 
+type QuotaFallbackDashboardUpdate =
+  | { ok: true; config: QuotaFallbackBotConfig | null }
+  | { ok: false; error: string; reason?: string; cycle?: string[] };
+
+// Per-bot quota fallback topology. The complete next bots.json generation is
+// checked while the cross-process config lock is held, so two concurrent saves
+// cannot each validate against stale state and jointly create A→B→A.
+ipcRoute('PUT', '/api/bot-quota-fallback', async (req, res) => {
+  if (!cachedLarkAppId) return jsonRes(res, 503, { ok: false, error: 'larkAppId_not_set' });
+  let body: Record<string, unknown>;
+  try {
+    const raw = await readJsonBody(req);
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+      return jsonRes(res, 400, { ok: false, error: 'invalid_quota_fallback' });
+    }
+    body = raw as Record<string, unknown>;
+  } catch {
+    return jsonRes(res, 400, { ok: false, error: 'bad_json' });
+  }
+
+  try {
+    const result = await rmwBotEntry<QuotaFallbackDashboardUpdate>(cachedLarkAppId, (entry, all) => {
+      if (body.enabled !== true) {
+        delete entry.quotaFallbackBot;
+        const cycle = findQuotaFallbackCycle(all);
+        return cycle
+          ? { write: false, result: { ok: false, error: 'quota_fallback_cycle', cycle } }
+          : { write: true, result: { ok: true, config: null } };
+      }
+
+      const normalized = normalizeQuotaFallbackBotConfig(body, cachedLarkAppId);
+      if (!normalized.config) {
+        return {
+          write: false,
+          result: { ok: false, error: 'invalid_quota_fallback', reason: normalized.error },
+        };
+      }
+      const target = all.find(candidate =>
+        candidate?.larkAppId === normalized.config!.targetAppId
+        && candidate?.apiOnly !== true
+        && candidate?.activationPending !== true
+        && candidate?.activationDeactivating === undefined
+        && candidate?.activationStarting === undefined
+        && candidate?.activationCommitted === undefined,
+      );
+      if (!target) {
+        return { write: false, result: { ok: false, error: 'quota_fallback_target_not_local' } };
+      }
+
+      entry.quotaFallbackBot = normalized.config;
+      const cycle = findQuotaFallbackCycle(all);
+      if (cycle) {
+        return { write: false, result: { ok: false, error: 'quota_fallback_cycle', cycle } };
+      }
+      return { write: true, result: { ok: true, config: normalized.config } };
+    });
+    if (!result.ok) return jsonRes(res, 400, { ok: false, error: result.reason });
+    if (!result.result.ok) {
+      const status = result.result.error === 'quota_fallback_cycle' ? 409 : 400;
+      return jsonRes(res, status, result.result);
+    }
+    getBot(cachedLarkAppId).config.quotaFallbackBot = result.result.config ?? undefined;
+    jsonRes(res, 200, { ok: true, quotaFallbackBot: result.result.config });
+  } catch (error: any) {
+    jsonRes(res, 500, { ok: false, error: 'quota_fallback_save_failed', reason: error?.message ?? String(error) });
+  }
+});
+
 // Per-bot card-behaviour toggles. Body may carry any subset of booleans; only
 // present keys are applied.
 ipcRoute('PUT', '/api/bot-card-prefs', async (req, res) => {
   if (!cachedLarkAppId) return jsonRes(res, 503, { error: 'larkAppId_not_set' });
   let body: {
     usageDisplay?: unknown;
-    disableStreamingCard?: unknown; pinStreamingCard?: unknown; silentTurnReactions?: unknown; codexAppCleanInput?: unknown; writableTerminalLinkInCard?: unknown; privateCard?: unknown; thinkingCard?: unknown;
+    disableStreamingCard?: unknown; hiddenStreamingCardButtons?: unknown; pinStreamingCard?: unknown; silentTurnReactions?: unknown; codexAppCleanInput?: unknown; writableTerminalLinkInCard?: unknown; privateCard?: unknown; thinkingCard?: unknown;
     thinkingCardToolResult?: unknown;
     botToBotSameDir?: unknown;
     autoStartOnGroupJoin?: unknown; autoStartOnGroupJoinPrompt?: unknown; autoStartOnGroupJoinSeed?: unknown; autoStartOnGroupJoinSeedDefault?: unknown; autoStartOnNewTopic?: unknown;
@@ -5120,7 +5203,7 @@ ipcRoute('PUT', '/api/bot-card-prefs', async (req, res) => {
 
   const patch: {
     usageDisplay?: UsageDisplayMode;
-    disableStreamingCard?: boolean; pinStreamingCard?: boolean; silentTurnReactions?: boolean; codexAppCleanInput?: boolean; writableTerminalLinkInCard?: boolean; privateCard?: boolean; thinkingCard?: boolean;
+    disableStreamingCard?: boolean; hiddenStreamingCardButtons?: StreamingCardButtonId[]; pinStreamingCard?: boolean; silentTurnReactions?: boolean; codexAppCleanInput?: boolean; writableTerminalLinkInCard?: boolean; privateCard?: boolean; thinkingCard?: boolean;
     thinkingCardToolResult?: boolean;
     botToBotSameDir?: boolean;
     autoStartOnGroupJoin?: boolean; autoStartOnGroupJoinPrompt?: string; autoStartOnGroupJoinSeed?: string; autoStartOnNewTopic?: boolean;
@@ -5131,6 +5214,10 @@ ipcRoute('PUT', '/api/bot-card-prefs', async (req, res) => {
   } = {};
   if (body.usageDisplay === 'streaming' || body.usageDisplay === 'footer' || body.usageDisplay === 'off') patch.usageDisplay = body.usageDisplay;
   if (typeof body.disableStreamingCard === 'boolean') patch.disableStreamingCard = body.disableStreamingCard;
+  if (Array.isArray(body.hiddenStreamingCardButtons)
+      && body.hiddenStreamingCardButtons.every(isStreamingCardButtonId)) {
+    patch.hiddenStreamingCardButtons = normalizeHiddenStreamingCardButtons(body.hiddenStreamingCardButtons) ?? [];
+  }
   if (typeof body.pinStreamingCard === 'boolean') patch.pinStreamingCard = body.pinStreamingCard;
   if (typeof body.botToBotSameDir === 'boolean') patch.botToBotSameDir = body.botToBotSameDir;
   if (typeof body.silentTurnReactions === 'boolean') patch.silentTurnReactions = body.silentTurnReactions;
