@@ -101,3 +101,5 @@ git diff --check
 另以临时 HOME/TMPDIR、独立进程逐个执行 `bun test <file>`，覆盖 `api-only-mode-wiring`、`backend-gate`、`worker-codex-instance.integration`：共 86 通过、0 失败。本地 Bun 为 1.4.0，CI 的 1.4.2/Linux 结果单独以 GitHub Checks 为准。
 
 `nice -n 10 bun run build` 与 `git diff --check` 通过。没有更新或重启 live 部署。
+
+随后 Linux CI 的构建、三类二进制、三个 Vitest 分片及汇总全部通过；Bun 全量完成 1120 文件，其中 1118 通过、2 失败。剩余两项是 Bun 链接阶段检查整个传递导入图，暴露 `mojo-isolation-inventory-failclosed` 缺少 `getSession` mock、`summary-command-window` 缺少 `loadBotConfigs` mock。本地 Bun 逐文件复现相同错误后补齐，两文件共 8 项测试分别在 Bun 和 Vitest 通过。本次补充仅修改测试 mock，不改生产代码，也不通过排除测试规避失败。
