@@ -103,3 +103,17 @@ git diff --check
 `nice -n 10 bun run build` 与 `git diff --check` 通过。没有更新或重启 live 部署。
 
 随后 Linux CI 的构建、三类二进制、三个 Vitest 分片及汇总全部通过；Bun 全量完成 1120 文件，其中 1118 通过、2 失败。剩余两项是 Bun 链接阶段检查整个传递导入图，暴露 `mojo-isolation-inventory-failclosed` 缺少 `getSession` mock、`summary-command-window` 缺少 `loadBotConfigs` mock。本地 Bun 逐文件复现相同错误后补齐，两文件共 8 项测试分别在 Bun 和 Vitest 通过。本次补充仅修改测试 mock，不改生产代码，也不通过排除测试规避失败。
+
+## 评审补充：实例身份稳定性
+
+`5d00c65b0` 的 [完整 CI](https://github.com/deepcoldy/botmux/actions/runs/34303801288) 已全绿，包括覆盖整个 unit 项目的三个分片、汇总、独立 Bun 测试及所有构建检查。评审提到的三个阻断项对应前述已修复问题。
+
+针对 `codexInstanceIdentity()` 的非阻断建议，补充以下回归验证：
+
+- 相同 runtime 配置改变输入键序（含 npm update 子对象）后，经 `resolveCliRuntime` / `snapshotCliRuntime` 规范化得到相同摘要。
+- SQLite 持久化后由新进程加载，没有继承父进程内存或 bot 配置，binding 与 runtime 生成的摘要仍一致。
+- 同一路径的假 CLI 从 `0.1.0` 原地更新为 `0.1.1`，实际执行 `--version` 确认版本变化，runtime 摘要不变；更换可执行路径或账号 home 则摘要不同。
+
+当前 runtime 快照包含 id、displayName、executable、source、update，不包含 CLI 探测版本；快照创建有固定字段顺序，持久化读取保留顺序。因此保持当前 hash 协议，避免让已有 pane 的身份失效。这不是承诺任意手工重排持久化 JSON 或未来快照 schema 变更都兼容；这类变更需要显式迁移策略。
+
+验证命令：`bun run test -- test/session-cli-instances-acceptance.test.ts test/cli-runtime.test.ts test/tmux-backend-env.test.ts test/worker-codex-instance.integration.test.ts --maxWorkers=2 --reporter=dot`。4 文件、134 通过、5 跳过、0 失败；`nice -n 10 bun run build` 和 `git diff --check` 均通过。此轮仅增加测试与文档，没有更改生产代码，也未重启 live daemon；重启证明来自隔离的真实 SQLite + 新进程测试，版本升级证明使用假 CLI，不冒充线上升级验收。

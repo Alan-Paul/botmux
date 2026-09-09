@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import type { BotConfig } from '../src/bot-registry.js';
 import {
   codexInstanceEnv,
+  codexInstanceIdentity,
   newSessionCodexInstanceState,
   normalizeCodexInstancePool,
   selectWeightedCodexInstance,
@@ -20,6 +21,7 @@ import * as sessionStore from '../src/services/session-store.js';
 import { DatabaseSync } from 'node:sqlite';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { assertCodexInstanceConfigWrite } from '../src/services/codex-instance-config-guard.js';
+import { resolveCliRuntime, snapshotCliRuntime } from '../src/adapters/cli/runtime.js';
 
 const storePaths = vi.hoisted(() => ({ dataDir: '' }));
 vi.mock('../src/config.js', () => ({ config: { session: { get dataDir() { return storePaths.dataDir; } } } }));
@@ -272,6 +274,33 @@ fs.writeFileSync(path.join(process.env.CODEX_HOME,'auth.json'),JSON.stringify({t
   }, 30_000);
 });
 
+describe('instance identity stability', () => {
+  it('normalizes reordered runtime config keys before freezing the identity', () => {
+    const binding = newSessionCodexInstanceState(bot(), 'http').cliInstanceBinding!;
+    const runtime = { id: 'fixture', displayName: 'Fixture', executable: '/opt/bin/fixture',
+      update: { provider: 'npm' as const, packageName: '@example/fixture' } };
+    const reordered = { update: { packageName: '@example/fixture', provider: 'npm' as const },
+      executable: runtime.executable, displayName: runtime.displayName, id: runtime.id };
+    const freeze = (cliRuntime: typeof runtime) => snapshotCliRuntime(resolveCliRuntime({ cliId: 'codex', cliRuntime }));
+    expect(codexInstanceIdentity(binding, freeze(reordered))).toBe(codexInstanceIdentity(binding, freeze(runtime)));
+  });
+
+  it('keeps identity across an in-place CLI version upgrade but rejects a different runtime path or home', () => {
+    const binding = newSessionCodexInstanceState(bot(), 'http').cliInstanceBinding!;
+    const executable = join(root, 'fixture-cli');
+    const freeze = () => snapshotCliRuntime(resolveCliRuntime({ cliId: 'codex', cliPathOverride: executable }))!;
+    writeFileSync(executable, '#!/bin/sh\nprintf "codex-cli 0.1.0\\n"\n', { mode: 0o755 });
+    expect(execFileSync(executable, ['--version'], { encoding: 'utf8' }).trim()).toBe('codex-cli 0.1.0');
+    const before = freeze();
+    const identity = codexInstanceIdentity(binding, before);
+    writeFileSync(executable, '#!/bin/sh\nprintf "codex-cli 0.1.1\\n"\n');
+    expect(execFileSync(executable, ['--version'], { encoding: 'utf8' }).trim()).toBe('codex-cli 0.1.1');
+    expect(codexInstanceIdentity(binding, freeze())).toBe(identity);
+    expect(codexInstanceIdentity(binding, { ...before, executable: join(root, 'different-cli') })).not.toBe(identity);
+    expect(codexInstanceIdentity({ ...binding, codexHome: b }, before)).not.toBe(identity);
+  });
+});
+
 describe('A4/A5: actual durable session store', () => {
   function initialize() {
     registerCodexInstanceBot(bot());
@@ -309,15 +338,19 @@ describe('A4/A5: actual durable session store', () => {
     const session = create('http');
     const result = spawnSyncTsEvalWithRepoImports(`
       import * as store from './src/services/session-store.js';
+      import { codexInstanceIdentity } from './src/services/codex-instance-pool.js';
       store.init('acceptance-app', { owner: false });
       const row = store.getSessionFresh(${JSON.stringify(session.sessionId)});
       process.stdout.write('ACCEPTANCE_ROW=' + JSON.stringify(row?.cliInstanceBinding) + '\\n');
+      process.stdout.write('ACCEPTANCE_IDENTITY=' + codexInstanceIdentity(row.cliInstanceBinding, row.cliRuntime) + '\\n');
     `, { cwd: process.cwd(), env: { ...process.env, SESSION_DATA_DIR: storePaths.dataDir }, encoding: 'utf8', timeout: 10_000 });
     expect(result.error).toBeUndefined();
     expect(result.status, String(result.stderr)).toBe(0);
     const line = String(result.stdout).split('\n').find(line => line.startsWith('ACCEPTANCE_ROW='));
     expect(line).toBeDefined();
     expect(JSON.parse(line!.slice('ACCEPTANCE_ROW='.length))).toEqual(session.cliInstanceBinding);
+    const identityLine = String(result.stdout).split('\n').find(line => line.startsWith('ACCEPTANCE_IDENTITY='));
+    expect(identityLine).toBe('ACCEPTANCE_IDENTITY=' + codexInstanceIdentity(session.cliInstanceBinding!, session.cliRuntime));
   });
   it('preserves an original home after restart, changed default/path/weights and fork', () => {
     initialize();
