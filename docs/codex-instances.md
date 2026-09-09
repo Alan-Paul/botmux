@@ -67,6 +67,10 @@ cli_auth_credentials_store = "file"
 
 管理写入口拒绝删除仍有可恢复会话引用的实例（包括 closed 行），建议只关闭随机分配。不要手工绕过检查删除配置或目录。所有旧记录迁移成功后才允许新分配；歧义路径报错。SQLite 事务和行 compare-and-set 保证进程崩溃/正常重启恢复绑定，不额外承诺突然掉电的持久性。
 
+`legacy` 也有意保持绑定：它的 `instanceId=null` 表示原有全局/每 Bot 目录，不表示未绑定。若只有 legacy 会话引用，可以移除整个池；之后即使把 Bot 默认 CLI 改为 Traex 等，已迁移会话仍使用冻结的 Codex runtime/home，运行中检查和重启恢复都不会因默认 CLI 不同而自动关闭它们，已有 pane 也保留。这与从未启用过实例池的未绑定会话不同，后者继续沿用原有 mismatch-close 行为。
+
+需要让老话题改用新的默认 CLI 时，明确 `/close` 旧会话，再创建新会话；恢复旧 session ID 仍沿用原绑定。删除池配置不等于撤销账号访问或终止老进程，停用账号前必须显式关闭相应会话。只要还有 pool/default 会话引用实例（包括 closed 但可恢复的记录），移除池仍会被配置写保护拒绝。
+
 tmux 保存非敏感 binding/runtime identity；恢复发现标记不一致或丢失时暂停，保留原 pane，不自动杀掉它。`/status` 和 Dashboard 显示实例 ID / source，完整 home 只在本机检查中显示。
 
 关闭功能不等于可安全降级旧二进制：旧版本不识别绑定，会错误恢复到全局目录。需保留 binding 读取能力，或先受控停用/隔离所有实例会话并备份。

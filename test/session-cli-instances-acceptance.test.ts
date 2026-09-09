@@ -418,6 +418,26 @@ describe('A4/A5: actual durable session store', () => {
     expect(() => assertCodexInstanceConfigWrite([bot()], [replacement])).toThrow(/referenced/);
     expect(() => assertCodexInstanceConfigWrite([bot()], [])).toThrow(/referenced/);
   });
+  it('allows removing a legacy-only pool without unbinding migrated sessions', () => {
+    sessionStore.init('acceptance-app');
+    const old = create('other');
+    old.cliId = 'codex';
+    sessionStore.updateSession(old);
+    registerCodexInstanceBot(bot());
+    const migrated = sessionStore.listSessionsStrict().find(row => row.sessionId === old.sessionId)!;
+    expect(migrated.cliInstanceBinding).toMatchObject({ source: 'legacy', instanceId: null });
+    expect(migrated.agentFrozen).toBe(true);
+    expect(migrated.cliRuntime).toBeDefined();
+    const withoutPool = { ...bot(), cliId: 'traex' as const, codexInstancePool: undefined };
+    expect(() => assertCodexInstanceConfigWrite([bot()], [withoutPool])).not.toThrow();
+    clearCodexInstanceBots();
+    sessionStore.init('acceptance-app');
+    expect(sessionStore.getSessionFresh(old.sessionId)).toMatchObject({
+      cliId: 'codex', agentFrozen: true, cliRuntime: migrated.cliRuntime, cliInstanceBinding: migrated.cliInstanceBinding,
+    });
+    expect(create('http').cliInstanceBinding).toBeUndefined();
+  });
+
   it('rolls back every legacy backfill row on a mid-migration failure, then retries without random allocation', () => {
     sessionStore.init('acceptance-app');
     const first = create('other');

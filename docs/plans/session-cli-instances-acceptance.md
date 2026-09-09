@@ -117,3 +117,11 @@ git diff --check
 当前 runtime 快照包含 id、displayName、executable、source、update，不包含 CLI 探测版本；快照创建有固定字段顺序，持久化读取保留顺序。因此保持当前 hash 协议，避免让已有 pane 的身份失效。这不是承诺任意手工重排持久化 JSON 或未来快照 schema 变更都兼容；这类变更需要显式迁移策略。
 
 验证命令：`bun run test -- test/session-cli-instances-acceptance.test.ts test/cli-runtime.test.ts test/tmux-backend-env.test.ts test/worker-codex-instance.integration.test.ts --maxWorkers=2 --reporter=dot`。4 文件、134 通过、5 跳过、0 失败；`nice -n 10 bun run build` 和 `git diff --check` 均通过。此轮仅增加测试与文档，没有更改生产代码，也未重启 live daemon；重启证明来自隔离的真实 SQLite + 新进程测试，版本升级证明使用假 CLI，不冒充线上升级验收。
+
+## 评审补充：legacy 的默认 CLI 变更语义
+
+确认 legacy 与 pool/default 一样有意豁免默认 CLI mismatch 清理：旧会话迁移后已有冻结 runtime/home，移除池不会撤销此绑定。仅 legacy 引用时可移除池，因为它不引用命名实例；pool/default 引用仍受删除保护。用户文档新增与从未启用池的未绑定会话的行为差异，以及显式 `/close` 后新建、停用账号前关闭旧会话的操作边界。
+
+新增 6 项回归覆盖真实 store 的 legacy 迁移→配置删除检查→重载保留绑定、运行中 pool/default/legacy 的 mismatch 豁免、默认 CLI 已切换时 legacy 在 tmux exists/missing/unknown 三种状态下的恢复。既有未绑定会话 mismatch-close 测试继续保留并通过。没有更改生产逻辑，仅补充代码注释、测试和文档。
+
+验证命令：`bun run test -- test/restore-zombie-close.test.ts test/session-cli-instances-acceptance.test.ts test/cli-selection.test.ts test/cli-runtime.test.ts test/session-store.test.ts test/session-store-sqlite.test.ts test/session-resume.test.ts test/fork-session.test.ts test/kill-worker-orphaned-backend.test.ts --maxWorkers=2 --reporter=dot`。9 文件、411 通过、0 失败，12.19 秒；`nice -n 10 bun run build` 与 `git diff --check` 均通过。上一提交 `4df72c38b` 的 [CI](https://github.com/deepcoldy/botmux/actions/runs/34305500875) 已全绿，包含完整 unit 分片及独立 Bun 测试。本轮恢复测试使用模拟 backend 和临时 SQLite，不是 live daemon 重启。

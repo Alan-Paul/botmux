@@ -148,6 +148,7 @@ store 创建接口在可信入口提供 creation intent 后原子插入完整 ro
 | 场景 | 规定行为 |
 | --- | --- |
 | 启用池前已有 Codex 全局会话 | 冻结 legacy/global home；绝不抽签 |
+| 移除池后再修改 Bot 默认 CLI | legacy 也保留冻结 runtime/home，与 pool/default 一样豁免默认 CLI mismatch 清理；移除配置不解绑、不撤权。需显式关闭后真正新建，才采用新的默认 CLI；未绑定会话保留原 mismatch-close 行为 |
 | 已有 isolated 或 sandbox 重定向会话 | 保留原 `<BOT_HOME>/codex` 及原策略；不能改为实例目录 |
 | 老记录缺乏 home 证据 | 启用池前按当前有效旧逻辑做 preflight/migration；持久 pane/元数据有冲突则列为未解决，阻止启用，不猜路径 |
 | 普通飞书来源的新话题/新 chat-scope 会话 | 一次选择；同一发送者开多个话题可以选到不同实例 |
