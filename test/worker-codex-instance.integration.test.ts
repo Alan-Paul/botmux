@@ -30,7 +30,7 @@ afterEach(async () => {
   }
 });
 
-function launch(missingHome = false) {
+function launch(missingHome = false, readIsolation = false) {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'botmux-worker-instance-')));
   const home = join(root, 'instance-a');
   const dataDir = join(root, 'session');
@@ -62,7 +62,7 @@ setInterval(() => {}, 1000);
   child.stdout?.on('data', chunk => logs.push(chunk.toString()));
   child.stderr?.on('data', chunk => logs.push(chunk.toString()));
   child.send({ type: 'init', sessionId: 'instance-worker-test', chatId: 'oc_fixture', rootMessageId: 'om_fixture', workingDir: dataDir,
-    cliId: 'codex', cliPathOverride: cli, backendType: 'pty', prompt: '',
+    cliId: 'codex', cliPathOverride: cli, backendType: 'pty', prompt: '', readIsolation,
     cliInstanceBinding: { version: 1, source: 'default', instanceId: 'a', cliId: 'codex', codexHome: home, authMode: 'isolated' },
     larkAppId: 'app_test', larkAppSecret: 'fixture-secret',
   } satisfies DaemonToWorker);
@@ -91,5 +91,12 @@ describe('frozen Codex instance through real worker IPC (workflow PTY path)', ()
     expect(f.messages.some(m => m.type === 'ready')).toBe(false);
     expect(existsSync(f.observation)).toBe(false);
     expect(existsSync(join(f.root, 'wrong-global-home'))).toBe(false);
+  }, 20000);
+  it('rejects explicit read isolation instead of silently disabling it for a bound instance', async () => {
+    const f = launch(false, true);
+    await until(() => f.child.exitCode !== null || f.child.signalCode !== null || f.messages.some(m => m.type === 'error'), f.logs);
+    expect(f.messages.some(m => m.type === 'ready')).toBe(false);
+    expect(f.logs.join('')).toContain('Codex instance routing does not support sandbox/readIsolation');
+    expect(existsSync(f.observation)).toBe(false);
   }, 20000);
 });

@@ -87,3 +87,17 @@ git diff --check
 - 在上述 26 文件命令基础上追加 `test/quota-fallback.test.ts`、`test/quota-fallback-worker.test.ts`、`test/bot-registry.test.ts`，保持 `--maxWorkers=2`：29 个文件，1410 通过、5 跳过、0 失败，19.53 秒。
 - `nice -n 10 bun run build` 再次通过，独立构建 runtime build id `8e4ea29d5158`；`git diff --check` 通过，无残留测试 CLI。
 - 真实飞书验收对应上一节已部署构建 `f297e746d28a`；合入上游后的 PR 版本完成回归与构建，但未再次部署或重跑飞书链路。两种验证状态不混为一谈。
+
+## PR CI 回归修复
+
+首次 CI 的三个失败在本地全部复现：
+
+- `api-only-mode-wiring`：恢复直接传递 bot 的 `readIsolation` 设置，避免实例绑定静默关闭管理员要求的隔离；不支持的组合由 worker 明确拒绝。新增真实 worker IPC 测试证明报错前不启动 CLI。
+- `backend-gate`：源码断言定位具体的 backend compatibility 错误，不再误匹配此前新增的实例隔离错误。
+- `bridge-final-output-retry`：补齐 session-store 的 `getSession` mock；否则新加入的 transcript binding 查询会被不完整 mock 抛错，最终被用量读取降级为空。
+
+复验命令是在上一节 29 文件命令后追加 `test/bridge-final-output-retry.test.ts`、`test/api-only-mode-wiring.test.ts`、`test/backend-gate.test.ts`，仍使用 `--maxWorkers=2`：32 文件、1581 通过、5 跳过、0 失败，21.64 秒。
+
+另以临时 HOME/TMPDIR、独立进程逐个执行 `bun test <file>`，覆盖 `api-only-mode-wiring`、`backend-gate`、`worker-codex-instance.integration`：共 86 通过、0 失败。本地 Bun 为 1.4.0，CI 的 1.4.2/Linux 结果单独以 GitHub Checks 为准。
+
+`nice -n 10 bun run build` 与 `git diff --check` 通过。没有更新或重启 live 部署。

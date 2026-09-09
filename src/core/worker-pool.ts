@@ -10877,7 +10877,7 @@ export function forkWorker(
     // sandbox stays independently driven worker-side by sandboxRequested
     // (cfg.sandbox || cfg.readIsolation || BOTMUX_SANDBOX=1); session.sandbox is
     // frozen from botCfg.sandbox at create time, so "follow local sandbox" holds.
-    readIsolation: ds.session.cliInstanceBinding?.source && ds.session.cliInstanceBinding.source !== 'legacy' ? false : botCfg.readIsolation === true,
+    readIsolation: botCfg.readIsolation === true,
     readDenyExtraPaths: botCfg.readDenyExtraPaths ?? [],
     // Identifies THIS daemon lifetime. Stamped onto isolated panes so the worker
     // can tell a suspend→resume reattach (same boot id, still isolated) from a
