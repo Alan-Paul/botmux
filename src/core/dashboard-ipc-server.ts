@@ -4304,18 +4304,20 @@ ipcRoute('PUT', '/api/group-default-models/:chatId', async (req, res, p) => {
   try { models = parseGroupDefaultModels(await readJsonBody(req)); }
   catch (e) { return jsonRes(res, 400, { ok: false, error: e instanceof Error ? e.message : 'bad_json' }); }
   const result = await setGroupDefaultModels(cachedLarkAppId, p.chatId, models);
-  return jsonRes(res, result.ok ? 200 : 500, result);
+  return jsonRes(res, result.ok ? 200 : result.reason === 'unsupported_reasoning_effort' ? 400 : 500, result);
 });
 
 ipcRoute('GET', '/api/groups', async (_req, res) => {
   if (!cachedLarkAppId) return jsonRes(res, 503, { error: 'larkAppId_not_set' });
   try {
     const chats = await groupsStore.listChats(cachedLarkAppId);
+    let agentDefaults: { agentCliId?: string; agentModel?: string; agentReasoningEffort?: string } = {};
     let groupDefaultModels: Record<string, import('./group-default-models.js').GroupDefaultModels> = {};
     let pinStreamingCardMasterEnabled = false;
     let noPinStreamingCardChats = new Set<string>();
     try {
       const botConfig = getBot(cachedLarkAppId).config;
+      agentDefaults = { agentCliId: botConfig.cliId, agentModel: botConfig.model, agentReasoningEffort: botConfig.reasoningEffort };
       groupDefaultModels = botConfig.groupDefaultModels ?? {};
       pinStreamingCardMasterEnabled = botConfig.pinStreamingCard === true;
       noPinStreamingCardChats = new Set(botConfig.noPinStreamingCardChats ?? []);
@@ -4342,6 +4344,7 @@ ipcRoute('GET', '/api/groups', async (_req, res) => {
       return {
         ...c,
         oncallChat: oncall ?? null,
+        ...agentDefaults,
         ...(groupDefaultModels[c.chatId] ? { defaultModels: groupDefaultModels[c.chatId] } : {}),
         firstSeenAt: seenMap.get(c.chatId) ?? null,
         hasRole,

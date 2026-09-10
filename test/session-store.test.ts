@@ -1810,3 +1810,16 @@ it('captures group model defaults only for new topics and persists independent s
   expect(getSession(first.sessionId)?.groupDefaultModels).toEqual({ codex: 'first', 'claude-code': 'sonnet' });
   expect(createSession('oc_a', 'legacy', 'no resolver', 'group').groupDefaultModels).toBeUndefined();
 });
+
+
+it('deeply snapshots group model and effort without changing runtime identity', () => {
+  const models = {codex:{model:'gpt-5.6-sol',reasoningEffort:'ultra' as const},'claude-code':{model:'sonnet',reasoningEffort:'high' as const}};
+  init('effort-test', {groupDefaultModels:()=>models});
+  const session=createSession('oc_group','root-effort','effort','group');
+  expect(session.reasoningEffort).toBeUndefined();
+  expect(session.cliId).toBeUndefined();
+  models.codex.model='changed';
+  expect(session.groupDefaultModels?.codex).toEqual({model:'gpt-5.6-sol',reasoningEffort:'ultra'});
+  init('effort-test');
+  expect(getSession(session.sessionId)?.groupDefaultModels?.codex).toEqual({model:'gpt-5.6-sol',reasoningEffort:'ultra'});
+});

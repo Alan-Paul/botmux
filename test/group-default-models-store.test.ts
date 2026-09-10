@@ -41,6 +41,9 @@ it('persists per-bot/per-group changes, reloads them, and clears without affecti
   expect(disk()[0].groupDefaultModels.oc_a).toBeUndefined();
   expect(disk()[0].groupDefaultModels.oc_b).toEqual({ codex: 'model-b' });
   expect(disk()[0].model).toBe('global');
+  await expect(setGroupDefaultModels('app-a', 'oc_a', {codex:{model:'gpt-5.6-sol',reasoningEffort:'ultra'}})).resolves.toMatchObject({ok:true});
+  expect(registry.getBot('app-a').config.cliId).toBe('codex');
+  await expect(setGroupDefaultModels('app-b', 'oc_a', {'claude-code':{model:'haiku',reasoningEffort:'high'}})).resolves.toEqual({ok:false,reason:'unsupported_reasoning_effort'});
   const before = readFileSync(configPath, 'utf8');
   await expect(setGroupDefaultModels('app-a', 'oc_b', { codex: 123 })).rejects.toThrow();
   expect(readFileSync(configPath, 'utf8')).toBe(before);
