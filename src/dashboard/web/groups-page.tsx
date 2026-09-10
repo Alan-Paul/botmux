@@ -1731,11 +1731,12 @@ export function ManageDialog(props: {
 
       <fieldset>
         <legend>新话题默认模型</legend>
-        <p><small>按机器人分别配置 Codex 和 Claude；留空继承 Bot 默认模型。修改只影响新话题，已有话题保持原配置。</small></p>
+        <p><small>CLI 跟随 Bot 的 Agent 配置；模型和思考强度可单独覆盖，选择继承则沿用 Agent 配置。修改仅影响新话题。</small></p>
         {inChat.map(member => <GroupDefaultModelsRow
           key={`${chat.chatId}-${member.larkAppId}`}
           chatId={chat.chatId} appId={member.larkAppId}
           botName={member.botName ?? member.larkAppId}
+          cliId={member.agentCliId} botModel={member.agentModel} botEffort={member.agentReasoningEffort}
           models={member.defaultModels} disabled={!available}
           onSaved={() => props.onReloadGroups({ force: true })}
         />)}

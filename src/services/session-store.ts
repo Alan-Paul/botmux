@@ -1744,7 +1744,7 @@ export function createSession(
   };
   if (chatType !== 'p2p' && scope !== 'chat') {
     const models = resolveGroupDefaultModels?.(chatId);
-    if (models && Object.keys(models).length) session.groupDefaultModels = { ...models };
+    if (models && Object.keys(models).length) session.groupDefaultModels = structuredClone(models);
   }
   persistRow(session);
   sessions.set(session.sessionId, session);

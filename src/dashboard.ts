@@ -3052,7 +3052,7 @@ async function buildGroupsMatrix(): Promise<GroupsMatrix> {
       for (const c of j.chats ?? []) {
         const {
           oncallChat,
-          defaultModels,
+          defaultModels, agentCliId, agentModel, agentReasoningEffort,
           firstSeenAt,
           hasRole,
           hasMessageListener,
@@ -3078,6 +3078,7 @@ async function buildGroupsMatrix(): Promise<GroupsMatrix> {
           inChat: true,
           oncallChat: oncallChat ?? null,
           defaultModels: defaultModels ?? {},
+          agentCliId, agentModel, agentReasoningEffort,
           hasRole: hasRole ?? false,
           hasMessageListener: hasMessageListener ?? false,
           pinStreamingCardMasterEnabled: pinStreamingCardMasterEnabled ?? false,

@@ -5,7 +5,7 @@
     "cliId": "claude-code",
     "model": "sonnet",
     "groupDefaultModels": {
-      "oc_xxx_team": { "codex": "your-codex-model", "claude-code": "opus" }
+      "oc_xxx_team": { "claude-code": { "model": "opus", "reasoningEffort": "high" } }
     },
     "disableCliBypass": true,
     "allowedUsers": ["alice@company.com"],

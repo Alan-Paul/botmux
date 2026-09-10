@@ -34,3 +34,13 @@ it('does not apply topic defaults to chat-scoped, direct, or adopted sessions', 
     expect(resolveSessionLaunchModel({ session: { cliId: 'codex', groupDefaultModels: { codex: 'topic' }, ...extra } }, { cliId: 'codex', model: 'bot' })).toBe('bot');
   }
 });
+
+
+it('accepts model and effort overrides while preserving legacy model strings', () => {
+  expect(parseGroupDefaultModels({codex:{model:' gpt-5.6-sol ',reasoningEffort:'ultra'},'claude-code':'sonnet'}))
+    .toEqual({codex:{model:'gpt-5.6-sol',reasoningEffort:'ultra'},'claude-code':'sonnet'});
+  expect(parseGroupDefaultModels({codex:{model:'',reasoningEffort:''}})).toEqual({});
+  expect(()=>parseGroupDefaultModels({codex:{reasoningEffort:'invalid'}})).toThrow();
+  expect(()=>parseGroupDefaultModels({codex:{model:42}})).toThrow();
+  expect(resolveSessionLaunchModel({session:{cliId:'codex',groupDefaultModels:{codex:{model:'group',reasoningEffort:'high'}}}}, {cliId:'codex',model:'global'})).toBe('group');
+});

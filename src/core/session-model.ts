@@ -1,4 +1,4 @@
-import type { GroupDefaultModels } from './group-default-models.js';
+import { groupModelSettings, type GroupDefaultModels, type GroupModelSettings } from './group-default-models.js';
 import type { CliId } from '../adapters/cli/types.js';
 
 /** Minimal shape of the runtime session needed to resolve a launch model. */
@@ -13,6 +13,13 @@ export type LaunchModelSession = {
   };
   spawnModelOverride?: string;
 };
+
+/** Scope is checked at launch: some creation paths assign it after creating the row. */
+export function resolveSessionGroupSettings(ds: LaunchModelSession, cliId: string | undefined): GroupModelSettings {
+  const isTopic = ds.session.scope !== 'chat' && ds.session.chatType !== 'p2p' && !ds.session.adoptedFrom;
+  return isTopic && (cliId === 'codex' || cliId === 'claude-code')
+    ? groupModelSettings(ds.session.groupDefaultModels?.[cliId]) : {};
+}
 
 /** Minimal shape of the live bot config needed to resolve a launch model. */
 export type LaunchModelBotConfig = { cliId?: CliId; model?: string };
@@ -55,11 +62,8 @@ export function resolveSessionLaunchModel(
 ): string | undefined {
   if (ds.spawnModelOverride) return ds.spawnModelOverride;
   const cliId = ds.session.cliId ?? botCfg?.cliId;
-  const isTopic = ds.session.scope !== 'chat' && ds.session.chatType !== 'p2p' && !ds.session.adoptedFrom;
-  if (isTopic && (cliId === 'codex' || cliId === 'claude-code')) {
-    const groupModel = ds.session.groupDefaultModels?.[cliId];
-    if (groupModel) return groupModel;
-  }
+  const groupModel = resolveSessionGroupSettings(ds, cliId).model;
+  if (groupModel) return groupModel;
   // No live config to consult (deregistered bot / display surfaces that tolerate
   // a missing registry entry) → the session's own record is the best we have.
   if (!botCfg) return ds.session.model;
