@@ -81,19 +81,19 @@ function GroupAgentDefaults(props: Props & { cliId: 'codex' | 'claude-code' }) {
   const id = `group-${props.appId}`;
   return <form onSubmit={save} className="group-default-models-row">
     <strong>{props.botName} · CLI：{props.cliId === 'codex' ? 'Codex' : 'Claude'}（跟随 Agent 配置）</strong>
-    <label><span>模型</span>
+    <div className="group-default-models-field"><span>模型</span>
       <ModelPickerField value={settings.model ?? ''} onChange={changeModel} options={options}
         disabled={props.disabled || saving} busy={detecting} dataInput={`${id}-model`}
         ariaLabel={`${props.botName} 模型`} defaultLabel={`继承 Agent 模型${props.botModel ? `（${props.botModel}）` : ''}`}
         customLabel="自定义模型…" includeDefault menuClassName="bd-field-menu"
         detectedCount={detectedCount} detectedLabel={`已探测 ${detectedCount} 个可用模型`} />
-    </label>
-    <label><span>思考强度</span>
+    </div>
+    <div className="group-default-models-field"><span>思考强度</span>
       <DropdownField dataInput={`${id}-effort`} ariaLabel={`${props.botName} 思考强度`}
         value={settings.reasoningEffort ?? ''} disabled={props.disabled || saving || efforts.length === 0}
         options={[{ value: '', label: efforts.length === 0 ? '当前模型不支持思考强度' : `继承 Agent 思考强度${props.botEffort ? `（${props.botEffort}）` : ''}` }, ...efforts.map(value => ({ value, label: tr(`botDefaults.agentReasoningEffort${value === 'xhigh' ? 'Xhigh' : value[0]!.toUpperCase() + value.slice(1)}`) }))]}
         onChange={value => { dirty.current = true; setSettings({ ...settings, reasoningEffort: efforts.find(e => e === value) }); }} />
-    </label>
+    </div>
     <button type="submit" disabled={props.disabled || saving}>保存</button>
     <small role="status">{status}</small>
   </form>;
