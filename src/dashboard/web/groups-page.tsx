@@ -1,3 +1,4 @@
+import { GroupDefaultModelsRow } from './group-default-models.js';
 import { describeCloseResidual } from '../../core/close-residual.js';
 import {
   memo,
@@ -1726,6 +1727,18 @@ export function ManageDialog(props: {
             onSaved={() => props.onReloadGroups({ force: true })}
           />
         ))}
+      </fieldset>
+
+      <fieldset>
+        <legend>新话题默认模型</legend>
+        <p><small>按机器人分别配置 Codex 和 Claude；留空继承 Bot 默认模型。修改只影响新话题，已有话题保持原配置。</small></p>
+        {inChat.map(member => <GroupDefaultModelsRow
+          key={`${chat.chatId}-${member.larkAppId}`}
+          chatId={chat.chatId} appId={member.larkAppId}
+          botName={member.botName ?? member.larkAppId}
+          models={member.defaultModels} disabled={!available}
+          onSaved={() => props.onReloadGroups({ force: true })}
+        />)}
       </fieldset>
 
       <fieldset>

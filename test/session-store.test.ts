@@ -1793,3 +1793,20 @@ describe('applySessionCommandUnowned() / readSessionRowUnowned()', () => {
     expect(JSON.parse(readFileSync(join(tempDir, 'sessions-appA.json'), 'utf-8')).s1.status).toBe('active');
   }, 15_000);
 });
+
+it('captures group model defaults only for new topics and persists independent snapshots', () => {
+  const groups = { oc_a: { codex: 'first', 'claude-code': 'sonnet' }, oc_b: { codex: 'other' } };
+  init('model-test', { groupDefaultModels: chatId => groups[chatId as keyof typeof groups] });
+  const first = createSession('oc_a', 'root-one', 'one', 'group');
+  const other = createSession('oc_b', 'root-two', 'two', 'group');
+  groups.oc_a.codex = 'changed';
+  const next = createSession('oc_a', 'root-three', 'three', 'group');
+  expect(first.groupDefaultModels?.codex).toBe('first');
+  expect(other.groupDefaultModels?.codex).toBe('other');
+  expect(next.groupDefaultModels?.codex).toBe('changed');
+  expect(createSession('oc_a', 'p2p', 'dm', 'p2p').groupDefaultModels).toBeUndefined();
+  expect(createSession('oc_a', 'chat', 'chat', 'group', 'chat').groupDefaultModels).toBeUndefined();
+  init('model-test');
+  expect(getSession(first.sessionId)?.groupDefaultModels).toEqual({ codex: 'first', 'claude-code': 'sonnet' });
+  expect(createSession('oc_a', 'legacy', 'no resolver', 'group').groupDefaultModels).toBeUndefined();
+});
