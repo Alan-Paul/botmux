@@ -376,7 +376,7 @@ import type {
 import { tmuxEnv, probeTmuxFunctionalWithRetry } from './setup/ensure-tmux.js';
 import { probeZmxVersion } from './setup/ensure-zmx.js';
 import { tmuxRestartJitterMs } from './core/tmux-recovery.js';
-import { IdleDetector } from './utils/idle-detector.js';
+import { IdleDetector, stripAnsiScreenText } from './utils/idle-detector.js';
 import { busyProbeRegion } from './utils/busy-probe.js';
 import {
   StuckDetector,
@@ -17254,7 +17254,7 @@ async function spawnCli(
   if (!isRemoteBackendType(effectiveBackendType)) {
     idleDetector = new IdleDetector(cliAdapter, () => {
       if (backend !== observedBackend || !backendScreenEvidenceIsAuthoritativeForMutation()) return '';
-      return captureBackendScreen(observedBackend);
+      return stripAnsiScreenText(captureBackendScreen(observedBackend));
     });
     wireIdleDetectorBusyTransition(idleDetector, `${cliName()} PTY`);
     idleDetector.onIdle(async (evidenceSource) => {
