@@ -9,8 +9,9 @@ import { probeTmuxFunctional } from '../src/setup/ensure-tmux.js';
 import type { DaemonToWorker, WorkerToDaemon } from '../src/types.js';
 
 const backendType = process.env.BOTMUX_TEST_WORKER_BINARY ? 'tmux' : 'pty';
+for (const xpiEnabled of ['false', 'true']) {
 it.skipIf(backendType === 'tmux' && !probeTmuxFunctional().ok)(
-  'queues collaborative inputs across principals until real Codex turn completion',
+  `queues collaborative inputs until real Codex completion with XPI=${xpiEnabled}`,
   async () => {
   // Linux systemd scopes are host-wide, even with an isolated HOME/TMPDIR.
   const sessionId = randomUUID();
@@ -80,7 +81,7 @@ setInterval(() => {}, 1000);
   try {
     const spawnOptions: SpawnOptions = {
       cwd: resolve('.'),
-      env: { ...process.env, TMUX_TMPDIR: root, SESSION_DATA_DIR: dataDir, BOTMUX_SESSION_ID: sessionId, LARK_APP_ID: 'app_test', LARK_APP_SECRET: 'secret' },
+      env: { ...process.env, BOTMUX_XPI_ENABLED: xpiEnabled, TMUX_TMPDIR: root, SESSION_DATA_DIR: dataDir, BOTMUX_SESSION_ID: sessionId, LARK_APP_ID: 'app_test', LARK_APP_SECRET: 'secret' },
       stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
     };
     child = process.env.BOTMUX_TEST_WORKER_BINARY
@@ -100,9 +101,11 @@ setInterval(() => {}, 1000);
     await waitFor(() => existsSync(loadingFile));
     writeFileSync(releaseFile, 'loaded');
     await waitFor(() => messages.some(m => m.type === 'turn_input_committed' && m.turnId === 'om_first'));
-    // The ordinary task policy still rejects cross-principal steering.
-    child.send({ type: 'message', content: 'must-not-run', turnId: 'om_reject', trustedCaller: other } satisfies DaemonToWorker);
-    await waitFor(() => messages.some(m => m.type === 'turn_input_rejected' && m.turnId === 'om_reject'));
+    // Opting into XPI still rejects unmarked cross-principal steering.
+    if (xpiEnabled === 'true') {
+      child.send({ type: 'message', content: 'must-not-run', turnId: 'om_reject', trustedCaller: other } satisfies DaemonToWorker);
+      await waitFor(() => messages.some(m => m.type === 'turn_input_rejected' && m.turnId === 'om_reject'));
+    }
     for (const [turnId, content] of [['om_second', 'second-task'], ['om_third', 'third-task']]) {
       child.send({ type: 'message', turnId, content, trustedCaller: other, queueAfterActiveTurn: true } satisfies DaemonToWorker);
     }
@@ -135,3 +138,4 @@ setInterval(() => {}, 1000);
     rmSync(root, { recursive: true, force: true });
   }
 }, 60_000);
+}

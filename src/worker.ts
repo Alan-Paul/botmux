@@ -3180,7 +3180,8 @@ function activeTurnBlocks(input: {
   trustedCaller?: TrustedCaller;
   trustedController?: TrustedCaller;
 }): boolean {
-  if (!crossPrincipalIsolationOn()) return false;
+  // Oncall FIFO is independent of the experimental cross-principal question gate.
+  if (!input.queueAfterActiveTurn && !crossPrincipalIsolationOn()) return false;
   return activeTurnAuthority.blocks(turnAuthorityIdentity(input));
 }
 
@@ -3202,6 +3203,7 @@ function activeTurnBlocks(input: {
  * failure handling rather than assuming that.
  */
 function adoptActiveTurnWhenIsolationOff(identity: TurnAuthorityIdentity): boolean {
+  if (identity.queueAfterActiveTurn) return false;
   if (crossPrincipalIsolationOn()) return false;
   const active = activeTurnAuthority.snapshot();
   activeTurnAuthority.clear();

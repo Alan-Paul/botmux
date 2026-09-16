@@ -148,6 +148,7 @@ beforeEach(() => {
 afterEach(() => {
   for (const ds of modules.daemon.__testOnly_activeSessions.values()) clearTimeout(ds.crossPrincipalWaitTimer);
   vi.useRealTimers();
+  vi.unstubAllEnvs();
   modules.daemon.__testOnly_setAutoStartJoinReadyMaxWaitMs();
 });
 
@@ -1424,7 +1425,8 @@ async function collaborativeSession() {
 }
 
 describe('collaborative Oncall input', () => {
-  it('admits another authorized member in order with their real identity and no owner question', async () => {
+  it.each(['false', 'true'])('admits another member in order without an owner question with XPI=%s', async (xpiEnabled) => {
+    vi.stubEnv('BOTMUX_XPI_ENABLED', xpiEnabled);
     const { ds, other } = await collaborativeSession();
     for (const [id, text] of [['om_supplement', 'Additional evidence'], ['om_continue', 'Continue investigating']]) {
       await modules.daemon.__testOnly_handleThreadReply({
