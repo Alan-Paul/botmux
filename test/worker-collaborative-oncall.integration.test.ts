@@ -63,7 +63,7 @@ fs.writeFileSync(${JSON.stringify(loadingFile)}, 'ready');
 const poll = setInterval(() => {
   if (!fs.existsSync(${JSON.stringify(releaseFile)})) return;
   clearInterval(poll);
-  process.stdout.write('\\x1b[2J\\x1b[H Earlier messages are available — press ctrl + t to view the full transcript\\r\\n› Ask Codex to do anything\\r\\n\\r\\n custom-model · /tmp');
+  process.stdout.write('\\x1b[2J\\x1b[H│ model: custom-model /model to change │\\r\\n│ directory: /tmp │\\r\\n› Ask Codex to do anything\\r\\n\\r\\n custom-model · /tmp');
 }, 50);
 setInterval(() => {}, 1000);
 `);
@@ -100,7 +100,8 @@ setInterval(() => {}, 1000);
     } satisfies DaemonToWorker);
     await waitFor(() => existsSync(loadingFile));
     writeFileSync(releaseFile, 'loaded');
-    await waitFor(() => messages.some(m => m.type === 'turn_input_committed' && m.turnId === 'om_first'));
+    // Observe CLI input directly: enqueue ACKs do not prove the task was submitted.
+    await waitFor(() => existsSync(inputFile) && readFileSync(inputFile, 'utf8').includes('first-task'));
     // Opting into XPI still rejects unmarked cross-principal steering.
     if (xpiEnabled === 'true') {
       child.send({ type: 'message', content: 'must-not-run', turnId: 'om_reject', trustedCaller: other } satisfies DaemonToWorker);
@@ -115,11 +116,11 @@ setInterval(() => {}, 1000);
     expect(readFileSync(inputFile, 'utf8')).not.toContain('second-task');
     expect(messages.some(m => m.type === 'turn_input_rejected' && m.turnId === 'om_second')).toBe(false);
     writeFileSync(finishFile, '1');
-    await waitFor(() => messages.some(m => m.type === 'turn_input_committed' && m.turnId === 'om_second'));
+    await waitFor(() => existsSync(inputFile) && readFileSync(inputFile, 'utf8').includes('second-task'));
     await new Promise(r => setTimeout(r, 3_200));
     expect(readFileSync(inputFile, 'utf8')).not.toContain('third-task');
     writeFileSync(finishFile, '2');
-    await waitFor(() => messages.some(m => m.type === 'turn_input_committed' && m.turnId === 'om_third'));
+    await waitFor(() => existsSync(inputFile) && readFileSync(inputFile, 'utf8').includes('third-task'));
     const submitted = readFileSync(inputFile, 'utf8');
     expect(submitted.match(/(?:first|second|third)-task/g)).toEqual(['first-task', 'second-task', 'third-task']);
     expect(submitted).not.toContain('must-not-run');
