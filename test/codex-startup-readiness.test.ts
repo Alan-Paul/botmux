@@ -32,7 +32,7 @@ afterEach(() => { detector.dispose(); vi.useRealTimers(); });
 function quiet() { vi.advanceTimersByTime(95_000); }
 
 describe('Codex startup readiness', () => {
-  for (const name of ['native-1', 'native-2']) {
+  for (const name of ['native-1', 'native-2', 'native-3']) {
     for (const chunkSize of [Infinity, 4096, 79]) {
       it(`releases ${name} restored history without a loaded banner, chunks=${chunkSize}`, () => {
         const fixture = JSON.parse(readFileSync(new URL(`./fixtures/codex-resume/${name}.json`, import.meta.url), 'utf8'));
