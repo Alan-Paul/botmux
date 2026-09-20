@@ -40,6 +40,7 @@ import {
   type CodexBrowserConfig,
 } from './core/codex-browser-config.js';
 import type { FeedbackPolicy, FeedbackPolicyInput } from './services/feedback-policy.js';
+import { normalizeOncallGroupPolicy, type OncallGroupPolicy } from './services/oncall-group-policy.js';
 import { normalizeFeedbackPolicyLayer } from './services/feedback-policy-resolver.js';
 import type { FeedbackWebhookDestination } from './services/feedback-outbox.js';
 import {
@@ -260,12 +261,17 @@ export interface MessageListenerConfig {
     matchMode?: 'any' | 'all';
   };
   replyPolicy?: {
-    /** V1 always replies under the triggering message. */
-    mode?: 'thread';
+    /** `thread` replies under the triggering message; `chat` posts at group top level. */
+    mode?: 'thread' | 'chat';
     /** V1 starts one session per matched message. */
     sessionMode?: 'per_message';
   };
 }
+
+/** A group may opt out of its bot's default listener or replace it entirely. */
+export type GroupMessageListenerOverride =
+  | { mode: 'disabled' }
+  | { mode: 'custom'; listener: MessageListenerConfig };
 
 /**
  * 免@ 斜杠命令：普通群里旁人直接发一条配置内的命令（如 `/solve`，未 @ 任何 bot）
@@ -1162,7 +1168,12 @@ function normalizeMessageListenerConfig(raw: unknown, botIndex: number, chatId: 
     ...(Object.keys(senderPolicy).length > 0 ? { senderPolicy } : {}),
     ...(Object.keys(messagePolicy).length > 0 ? { messagePolicy } : {}),
     ...(contentPolicy ? { contentPolicy } : {}),
-    replyPolicy: { mode: 'thread', sessionMode: 'per_message' },
+    replyPolicy: {
+      mode: entry.replyPolicy && typeof entry.replyPolicy === 'object' && (entry.replyPolicy as Record<string, unknown>).mode === 'chat'
+        ? 'chat'
+        : 'thread',
+      sessionMode: 'per_message',
+    },
   };
 }
 
@@ -1173,6 +1184,23 @@ function normalizeMessageListeners(raw: unknown, botIndex: number): Record<strin
     if (typeof chatId !== 'string' || !chatId.trim()) continue;
     const listener = normalizeMessageListenerConfig(listenerRaw, botIndex, chatId.trim());
     if (listener) out[chatId.trim()] = listener;
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
+function normalizeGroupMessageListenerOverrides(raw: unknown, botIndex: number): Record<string, GroupMessageListenerOverride> | undefined {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+  const out: Record<string, GroupMessageListenerOverride> = {};
+  for (const [chatId, overrideRaw] of Object.entries(raw as Record<string, unknown>)) {
+    if (!chatId.trim() || !overrideRaw || typeof overrideRaw !== 'object' || Array.isArray(overrideRaw)) continue;
+    const entry = overrideRaw as Record<string, unknown>;
+    if (entry.mode === 'disabled') {
+      out[chatId.trim()] = { mode: 'disabled' };
+      continue;
+    }
+    if (entry.mode !== 'custom') continue;
+    const listener = normalizeMessageListenerConfig(entry.listener, botIndex, chatId.trim());
+    if (listener) out[chatId.trim()] = { mode: 'custom', listener };
   }
   return Object.keys(out).length > 0 ? out : undefined;
 }
@@ -1374,6 +1402,7 @@ export interface BotConfig {
   apiOnly?: boolean;
   /** Final-answer feedback policy. Missing/disabled is intentionally inert. */
   feedback?: FeedbackPolicyInput | FeedbackPolicy;
+  oncallGroup?: OncallGroupPolicy;
   /** Per-chat final-answer feedback overrides, scoped to this bot app id. */
   chatFeedbackPolicies?: Record<string, FeedbackPolicyInput>;
   feedbackWebhooks?: { destinations: FeedbackWebhookDestination[] };
@@ -1504,6 +1533,19 @@ export interface BotConfig {
    * 缺省/`off`：保持内联 envelope（历史行为）。从下一个 follow-up turn 生效。
    */
   envelopeInjection?: 'auto' | 'off';
+  /**
+   * 最终回复投递方式。`send`：模型必须自己执行 `botmux send` 把回复发到飞书，
+   * 系统提示与每轮 reminder 都这么要求。`transcript`：daemon 从 CLI 转写自动取
+   * 本轮最后的 assistant 文本发最终回复卡（即原来的 bridge fallback 升为主通道），
+   * 系统提示不再提及 `botmux send`、不再注入每轮 reminder；solo 会话（私聊 / 仅
+   * owner 的 1v1 群）还会去掉 `<user_message>` 壳与 `<sender/>`。只对有转写采集
+   * 的 CLI 有效（见 core/reply-delivery.ts），不支持的 CLI 运行时自动回落 send。
+   * 缺省按 CLI：claude-code 缺省 `transcript`，其它 CLI 缺省 `send`
+   * （`defaultReplyDeliveryFor`）；显式 `'send'` / `'transcript'` 都持久化，
+   * claude-code 要回旧行为只能显式写 `'send'`。系统提示部分需 /restart 生效，
+   * 逐轮信封立即生效。
+   */
+  replyDelivery?: 'send' | 'transcript';
   /**
    * Whether each forwarded turn carries a `<sender type=… open_id=… name=…
    * email=… />` tag naming who spoke. Default ON (ABSENT ⇒ ON — only an
@@ -1657,6 +1699,20 @@ export interface BotConfig {
   workingDir?: string;
   workingDirs?: string[];
   allowedUsers?: string[];
+  /**
+   * 黑名单（纯增量「否决腿」，与 allowedUsers 白名单独立）：原始条目形态与
+   * allowedUsers 完全一致（邮箱 / 手机号 / on_ / ou_ 混写），daemon 启动期复用
+   * 同一套 resolveAllowedUsersWithMap + sidecar 缓存解析成**本 app 视角**的
+   * open_id（resolvedBlockedUsers）。注意 `ou_` 与 allowedUsers 一样是
+   * app-scoped：只对本飞书应用有效，不能从别的 Bot 配置复制。
+   *
+   * 语义：命中黑名单的 sender 在 evaluateTalk 里于 allowedUser 命中腿**之后**、
+   * 其它所有放行腿（oncall / peer / team / grants / open …）**之前**被否决，
+   * canOperate 同腿；黑名单不进 dashboard owner 描述符。owner / 管理员
+   * （resolvedAllowedUsers）不可被拉黑——写入口 setBotBlockedUsers 有守卫，
+   * 判定顺序是双保险。空/缺省 = 不否决任何人。
+   */
+  blockedUsers?: string[];
   /**
    * Owner's native app-scoped `open_id` (`ou_…`), captured at setup from the
    * device-flow scanner identity. UNLIKE `allowedUsers` (which may hold `on_`/
@@ -2018,6 +2074,20 @@ export interface BotConfig {
    */
   autoStartOnGroupJoinSeed?: string;
   /**
+   * 主动开工 — 入群执行命令开关。true 且 {@link groupJoinCommand} 非空时，bot 被拉进
+   * 任意群就直接执行该命令（不起 CLI 会话、不经 LLM），与 {@link autoStartOnGroupJoin}
+   * 互相独立、可同时开。不做 allowedUser 在群闸：命令本身由 bot 管理员配置，
+   * 典型场景是告警平台拉的应急群里人还没进来就要先跑诊断脚本。
+   */
+  groupJoinCommandEnabled?: boolean;
+  /**
+   * 主动开工 — 入群执行的命令。执行契约同 hooks.json（无 shell、按空白/引号切分参数、
+   * 最小 env 白名单）；stdin 是 JSON `{event:'chat.bot_added', larkAppId, chatId,
+   * operatorOpenId, emittedAt}`，另有 BOTMUX_JOIN_CHAT_ID / BOTMUX_JOIN_LARK_APP_ID /
+   * BOTMUX_JOIN_OPERATOR_OPEN_ID 环境变量；超时 10 分钟杀进程组。
+   */
+  groupJoinCommand?: string;
+  /**
    * 进群自动拉 owner。Default (undefined) = ON：本 bot 被加进任何群时，自动把
    * 自己的 owner（resolvedAllowedUsers 首个 ou_ 用户）拉进群——bot 应始终处于
    *  owner 可见的群里（不打黑工）。显式 false 关闭（如告警/oncall 类 bot 被
@@ -2031,13 +2101,11 @@ export interface BotConfig {
    * Default (undefined) = passive.
    */
   autoStartOnNewTopic?: boolean;
-  /**
-   * Per-chat group message listener. Keyed by chat_id and bot-scoped so the
-   * dashboard can configure it from the Roles page's natural group × bot
-   * matrix. When enabled, the bot may react to non-@ top-level group messages
-   * after deterministic sender/msgType filtering. V1 always replies in a
-   * fresh thread under the triggering message.
-   */
+  /** Bot-wide default listener. It applies to every joined group without an override. */
+  globalMessageListener?: MessageListenerConfig;
+  /** Per-chat exceptions to {@link globalMessageListener}; an absent entry inherits. */
+  groupMessageListenerOverrides?: Record<string, GroupMessageListenerOverride>;
+  /** @deprecated Read-only compatibility shape; normalized as custom overrides. */
   messageListeners?: Record<string, MessageListenerConfig>;
   /**
    * 免@ 斜杠命令。per-bot 一份命令表 + 生效群范围（chats 空 = 所有群，
@@ -2172,6 +2240,9 @@ export interface BotState {
   resolvedAllowedUsers: string[];
   /** raw allowedUsers 条目 → 解析后的 open_id。供 /revoke 反查并删除 email 形式的 raw 条目。 */
   rawAllowedUserResolution: Map<string, string>;
+  /** blockedUsers 原始条目解析后的本 app open_id（纯否决腿，启动期 best-effort 解析，
+   *  缺省 [] = 不否决任何人）。与 resolvedAllowedUsers 共用同一 sidecar 缓存。 */
+  resolvedBlockedUsers: string[];
 }
 
 export type NativeSubagentRuntimeConfigState =
@@ -2398,6 +2469,7 @@ export function registerBot(cfg: BotConfig): BotState {
     uploadClient,
     resolvedAllowedUsers: [...(cfg.allowedUsers ?? [])],
     rawAllowedUserResolution: new Map(),
+    resolvedBlockedUsers: [],
   };
   // p2pOpen 是一次显式的权限边界声明（进入限制态），但它只授 talk。没有 allowedUsers 就
   // 没有任何人能 operate（/restart、/cd、卡片按钮全锁死），也没有 owner 可以处置授权卡 ——
@@ -2510,6 +2582,15 @@ export function getOwnerOpenId(larkAppId: string): string | undefined {
     return configuredOwner;
   }
   return bot.resolvedAllowedUsers.find(u => u.startsWith('ou_'));
+}
+
+/** Per-bot 最终回复投递方式的**显式**配置值；未配置 / 未注册的 bot 返回 undefined，
+ *  由 core/reply-delivery.ts 的 effectiveReplyDelivery 按 CLI 补缺省（claude-code
+ *  → transcript，其它 → send）。只读内存 registry：worker 通过 init IPC 拿冻结值，
+ *  不需要磁盘 mtime 缓存。 */
+export function resolveReplyDelivery(larkAppId: string): 'send' | 'transcript' | undefined {
+  const v = bots.get(larkAppId)?.config.replyDelivery;
+  return v === 'transcript' || v === 'send' ? v : undefined;
 }
 
 /** Admins = only resolved allowedUsers, matching `/botconfig`'s fail-closed permission model. */
@@ -3462,7 +3543,17 @@ export function parseBotConfigsFromText(jsonText: string): BotConfig[] {
     const summaryMemory = entry.summaryMemory === true ? true : undefined;
     const summaryMemoryPath = normalizeNonEmptyString(entry.summaryMemoryPath);
     const contentTriggers = normalizeContentTriggers(entry.contentTriggers, i);
-    const messageListeners = normalizeMessageListeners(entry.messageListeners, i);
+    const globalMessageListener = normalizeMessageListenerConfig(entry.globalMessageListener, i, 'global');
+    const groupMessageListenerOverrides = normalizeGroupMessageListenerOverrides(entry.groupMessageListenerOverrides, i);
+    // Existing configurations are semantically group-specific custom rules.
+    // Read them as a compatibility fallback without widening their scope.
+    const legacyMessageListeners = normalizeMessageListeners(entry.messageListeners, i);
+    const mergedGroupMessageListenerOverrides = {
+      ...(legacyMessageListeners
+        ? Object.fromEntries(Object.entries(legacyMessageListeners).map(([chatId, listener]) => [chatId, { mode: 'custom' as const, listener }]))
+        : {}),
+      ...(groupMessageListenerOverrides ?? {}),
+    };
     const commandTriggers = normalizeCommandTriggers(entry.commandTriggers);
     const vcMeetingAgent = normalizeVcMeetingAgentConfig(entry.vcMeetingAgent);
     const normalizedQuotaFallback = cyclicQuotaFallbackIds.has(entry.larkAppId)
@@ -3527,6 +3618,7 @@ export function parseBotConfigsFromText(jsonText: string): BotConfig[] {
       // upload etc. already degrade gracefully on an empty secret.
       larkAppSecret: entry.larkAppSecret ?? '',
       apiOnly: entry.apiOnly === true || undefined,
+      oncallGroup: entry.oncallGroup === undefined ? undefined : normalizeOncallGroupPolicy(entry.oncallGroup),
       feedback: entry.feedback === undefined
         ? undefined
         : normalizeFeedbackPolicyLayer(entry.feedback),
@@ -3577,6 +3669,8 @@ export function parseBotConfigsFromText(jsonText: string): BotConfig[] {
         : undefined,
       disableCliBypass: entry.disableCliBypass === true,
       codexAppCleanInput: entry.codexAppCleanInput === true || undefined,
+      // 显式 send / transcript 都保留：claude-code 缺省 transcript，写 send 才是退回旧行为。
+      replyDelivery: entry.replyDelivery === 'transcript' || entry.replyDelivery === 'send' ? entry.replyDelivery : undefined,
       codexBrowser,
       codexRpcInput: entry.codexRpcInput === true,
       existingAppServer,
@@ -3613,6 +3707,11 @@ export function parseBotConfigsFromText(jsonText: string): BotConfig[] {
       workingDir: workingDirs?.[0] ?? entry.workingDir,
       workingDirs,
       allowedUsers: entry.allowedUsers,
+      // 与 allowedUsers 同款原始条目（邮箱/手机/on_/ou_），daemon 启动期复用同一套
+      // 解析缓存换成本 app open_id；非数组 / 空归一为 undefined，保持 bots.json 干净。
+      blockedUsers: Array.isArray(entry.blockedUsers)
+        ? (normalizeStringList(entry.blockedUsers) || undefined)
+        : undefined,
       // Only a well-formed native open_id is trusted; anything else (stray on_/
       // email/garbage) is dropped so the fail-safe recipient can never be a
       // value that itself needs resolving.
@@ -3725,10 +3824,21 @@ export function parseBotConfigsFromText(jsonText: string): BotConfig[] {
         ? entry.autoStartOnGroupJoinSeed
         : undefined,
       autoStartOnNewTopic: entry.autoStartOnNewTopic === true || undefined,
+      groupJoinCommandEnabled: entry.groupJoinCommandEnabled === true || undefined,
+      groupJoinCommand: typeof entry.groupJoinCommand === 'string' && entry.groupJoinCommand.trim()
+        ? entry.groupJoinCommand.trim()
+        : undefined,
       // 默认 OFF：只有显式 true 有意义/落盘。开启后 `botmux send --mention`
       // 才能用完整邮箱/手机号等标识 @ 群内任意成员（见 BotConfig 上的说明）。
       allowArbitraryMention: entry.allowArbitraryMention === true || undefined,
-      messageListeners,
+      globalMessageListener,
+      groupMessageListenerOverrides: Object.keys(mergedGroupMessageListenerOverrides).length > 0
+        ? mergedGroupMessageListenerOverrides
+        : undefined,
+      // Compatibility read view for existing callers during the transition.
+      // New runtime resolution prefers groupMessageListenerOverrides, while
+      // legacy consumers continue seeing the original per-chat rules.
+      messageListeners: legacyMessageListeners,
       commandTriggers,
       worktreeMultiPicker: entry.worktreeMultiPicker === true || undefined,
       // Per-bot regular-group default mode. Default is 'chat-topic' (顶层平铺

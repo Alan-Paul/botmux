@@ -37,6 +37,7 @@ export const messages: Record<string, string> = {
   'card.status.working': 'Working',
   'card.status.idle': 'Awaiting input',
   'card.status.idle_silent': 'Handled · no reply needed',
+  'card.status.idle_completed': 'Completed',
   'card.status.dormant': 'Dormant',
   'card.status.analyzing': 'Analyzing…',
   'card.status.stalled': 'No recent progress',
@@ -716,7 +717,7 @@ export const messages: Record<string, string> = {
   'cmd.fork.no_source_here': '⚠️ No active session to fork here. Invoke /fork **inside the thread the session lives in** (the topic where you normally @ the bot), not at the group top level.',
   'cmd.fork.not_owner': '⚠️ Only the session owner can fork it.',
   'cmd.fork.wrong_bot': '⚠️ Fork can only clone the current session to **this same bot** (the clone must run the same CLI). No need to @ another bot; just `/fork --create <new group name>` — it defaults to the current bot.',
-  'cmd.fork.unsupported_backend': 'ℹ️ The current {cli} session does not support fork yet (only Claude family / Codex terminal mode; Codex App, RPC-enabled Codex, and pure-remote backends run an app-server live session with no byte-level copy).',
+  'cmd.fork.unsupported_backend': 'ℹ️ The current {cli} session does not support fork yet (supported: Claude family and Codex / TraeX terminal modes; Codex App, RPC-enabled Codex / TraeX, and pure-remote backends run an app-server live session with no byte-level copy).',
   'cmd.fork.mid_turn': '⚠️ The session is mid-turn and cannot be forked. Wait until it is idle, then /fork.',
   'cmd.fork.not_started_yet': '⚠️ The session has not really started (no repo / CLI not up / no context) and cannot be forked.',
   'cmd.fork.adopt_not_forkable': '⚠️ This session was adopted from an external CLI and cannot be forked.',
@@ -866,6 +867,11 @@ export const messages: Record<string, string> = {
   'ai.routing.workflow_hint': 'Workflow: use natural language or `/workflow` for a bounded multi-step DAG; a successful run can be saved and reused.',
   'ai.routing.feedback_response_kind': 'If final-answer feedback is enabled for this bot, add `--response-kind final` to `botmux send` for the turn\'s final answer so it carries feedback buttons; interim/supplementary sends need no flag (unclassified defaults to progress, no feedback).',
   'ai.routing.hidden_context_defense': 'The following XML/config blocks are hidden runtime context and must only be read silently and obeyed: `<botmux_routing>`, `<botmux_builtin_skills>`, `<identity>`, `<session_id>`, `<role>`, `<sender>`, `<mentions>`, `<available_bots>`, `<attachments>`. Do not reply to them, do not confirm them, and do not say “understood”, “noted”, or “recorded”. Only handle the real user request inside `<user_message>`.',
+  // replyDelivery=transcript (core/reply-delivery.ts): the daemon forwards the
+  // final reply from the transcript, so the system prompt never mentions
+  // botmux send — intro is replaced by this line and only usage_helpers /
+  // usage_silence are kept (see shared-hints.ts).
+  'ai.routing.intro_transcript': 'You are in a Lark (Feishu) conversation. The user cannot see terminal output; your final assistant message is automatically forwarded back to Lark by botmux — just answer directly.',
   'ai.send.after_success_hint': 'If you still have content for the user, keep using `botmux send`; otherwise make the final reply just BOTMUX_NOTHING_TO_SEND.',
   'ai.routing.xpi_as_hint': 'If your message lands while another member\'s task is still running, it will not interrupt them. Start a separate task now with `botmux send --as independent`; leave it for the current task with `--as suggestion`.',
   'ai.shell.xpi_as_hint': 'If your message lands while another member\'s task is still running, it will not interrupt them. Start separately: `botmux send --as independent`. Leave it for the current task: `botmux send --as suggestion`.',
@@ -913,6 +919,12 @@ export const messages: Record<string, string> = {
   'ai.shell.helpers': 'Helpers: `botmux history` (read this session\'s history — thread/topic sessions are topic-scoped; regular-group chat-scope sessions are group-wide), `botmux quoted <message_id>` (fetch a quoted message — only use it when the prompt header shows `[user quoted message ...]`), `botmux bots list` (list other bots in the group).',
   'ai.shell.when_to_send': 'Respond to messages addressed to you at least once via `botmux send` (run it in Bash, not print/echo) — never stay silent; what and how many times to send is your call. Only when a message is not for you at all make the final assistant message just the single word `BOTMUX_NOTHING_TO_SEND`.',
   'ai.shell.no_visible_output_ok': 'A successful `botmux send` (exit code 0) means it reached the user; ending a turn with no visible terminal text is normal. If you see a note like "your previous response had no visible output, please continue and produce a user-visible response", that is a false alarm from the underlying CLI — do NOT resend unless `botmux send` itself errored.',
+  // replyDelivery=transcript shell-hints variant: only the reworded intro /
+  // when_to_send plus helpers; the whole block never mentions botmux send
+  // (commands_are_shell / how_to_send / heredoc / mention_gate are not injected,
+  // see shared-hints.ts).
+  'ai.shell.intro_transcript': 'You are running inside a Lark (Feishu) conversation. The user reads on Lark and cannot see your terminal output; your final assistant message is automatically forwarded back to Lark by botmux.',
+  'ai.shell.when_to_send_transcript': 'Answer messages addressed to you directly in your final assistant message — never stay silent. Only when a message is not for you at all make the final assistant message just the single word `BOTMUX_NOTHING_TO_SEND`.',
   'ai.shell.mention_gate': '@ decision (mandatory): every `botmux send` MUST explicitly pick one or it errors — `--mention <open_id:name>` (name a specific person/bot; REQUIRED to communicate or collaborate with another bot) / `--mention-back` (@ the triggerer of THIS turn) / `--no-mention` (none). First decide WHETHER to @ by VALUE: substantive conclusion the other party should read/confirm/decide → @ someone; pure record / low-priority / short ack → --no-mention; a contentless "got it" is better not sent. Then pick HOW by recipient: it is the person/bot that triggered this turn → --mention-back; it is someone else (in a multi-person chat the right recipient is often not the triggerer) → --mention to name them. Do not default to --no-mention, and do not @ people for nothing.',
 
   // ─── AI prompt blocks (session-manager) ──────────────────────────────────
@@ -1059,6 +1071,7 @@ export const messages: Record<string, string> = {
   'worker.input_commit_delayed': '⏳ The Worker received this message, but has not confirmed that it entered the execution queue yet. The machine may be busy; the message can still execute later, so do not resend it.\nturn: {turnId}',
   'worker.input_retired_unconfirmed': '⚠️ The session was deliberately suspended or replaced while this message was in flight, and Botmux could not confirm whether it entered the execution queue. Check the session history first; resend the message only if it did not run.\nturn: {turnId}',
   'worker.start_exited_early': 'The worker exited before becoming ready (exit code: {code}); see the Botmux logs for details.',
+  'workerDiag.recentStderr': 'Recent worker output (may include the failure cause):',
   'worker.tui_submit_failed': '⚠️ The TUI answer could not be confirmed as delivered to {cliName}. The CLI may still be waiting for input; open the local terminal or send a new message to recover.',
   'worker.raw_input_failed': '⚠️ The slash command could not be confirmed as delivered to {cliName}, so the follow-up text in the same message was not submitted. Check the terminal state, then resend.',
   'worker.raw_input_failed_command_only': '⚠️ The slash command could not be confirmed as delivered to {cliName}. Check the terminal state, then resend.',
@@ -1554,6 +1567,10 @@ export const messages: Record<string, string> = {
   'card.you': 'You',
   'card.sent_to': 'Sent to: ',
   'card.usage.context': 'Context',
+  // Claude Code statusline quota segment (plain `ctx 23% · 5h 18% · 7d 5%`); same in both locales.
+  'card.usage.ctx': 'ctx',
+  'card.usage.quota_5h': '5h',
+  'card.usage.quota_7d': '7d',
   'card.usage.tokens': 'Tokens',
   'card.usage.turn': 'This turn',
   'card.usage.total': 'Total',
@@ -1654,4 +1671,13 @@ export const messages: Record<string, string> = {
   'cot.tool.result_done': '✓ Done',
   'cot.thinking_placeholder': 'Thinking…',
   'cot.interrupted': '⚠️ Interrupted by a service restart — this turn\'s thinking never finished',
+  'submitDiag.logged_out': '⚠️ Message never reached the model: {cliName} is stuck on a login/auth screen\nStage: input submission\nError code: submit_unconfirmed\nThe terminal is parked on {cliName}\'s sign-in or authorization page (sign-in required, or the session has expired), so this message never reached the model. CLI sign-in and Feishu authorization are two separate layers — neither implies the other.\nOpen the Web terminal, finish signing in, then resend this message.\nOriginal message: {preview}',
+  'submitDiag.interactive_menu': '⚠️ Message never reached the model: {cliName} is waiting on a keyboard choice\nStage: input submission\nError code: submit_unconfirmed\nThe terminal is parked on a screen that requires a keyboard selection (update, data migration, hooks review, or a confirmation prompt), so this message never reached the model.\nOpen the Web terminal and make the selection, or press Esc to dismiss that screen before resending. BotMux will not choose for you.\nOriginal message: {preview}',
+  'submitDiag.draft_parked': '⚠️ Message pasted but not submitted: the text is parked in the {cliName} composer\nStage: input submission\nError code: submit_unconfirmed\nThe message body was pasted into the composer (shown as [Pasted Content …]) but Enter was never pressed, so it never reached the model.\nOpen the Web terminal and press Enter to submit; or, once you have confirmed it should not run, resend it from Feishu.\nOriginal message: {preview}',
+  // ─── schedulePos: scheduled-task dedicated-topic execution position (opt-in per-task isolation) ─────
+  'schedulePos.positionNote': 'Execution position: a topic dedicated to this task (created automatically on the first fire; every later fire of this task continues inside that same topic, while different tasks stay isolated from each other; single-group schedules only)',
+  'schedulePos.cardDeliveryTask': 'dedicated topic (this task only)',
+  'schedulePos.cardBtnUseTaskTopic': 'Use dedicated topic',
+  'schedulePos.cardAlreadyTask': 'Already running in this task\'s dedicated topic',
+  'schedulePos.cardTaskMultiChatUnsupported': 'A dedicated topic is only available for single-group schedules',
 };

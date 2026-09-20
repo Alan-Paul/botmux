@@ -40,6 +40,7 @@ export const messages: Record<string, string> = {
   'card.status.working': '工作中',
   'card.status.idle': '等待输入',
   'card.status.idle_silent': '已处理 · 判定无需回复',
+  'card.status.idle_completed': '已完成',
   'card.status.dormant': '休眠',
   'card.status.analyzing': '正在分析…',
   'card.status.stalled': '长时间无进展',
@@ -714,7 +715,7 @@ export const messages: Record<string, string> = {
   'cmd.fork.no_source_here': '⚠️ 这里没有可 fork 的活跃会话。/fork 要在**会话所在的那个话题里**发起（就是你平时 @ 机器人聊天的那条话题），不要在群顶层发。',
   'cmd.fork.not_owner': '⚠️ 只有会话发起人能 fork 它。',
   'cmd.fork.wrong_bot': '⚠️ fork 只能把当前会话复制给**当前这个机器人**（分身要跑同一个 CLI）。不用 @ 别的机器人；直接 `/fork --create <新群名>` 即可，会默认用当前机器人。',
-  'cmd.fork.unsupported_backend': 'ℹ️ 当前 {cli} 会话暂不支持 fork（目前仅 Claude 系 / Codex 终端模式；Codex App、开启 RPC 的 Codex、纯远端后端走 app-server 活会话，无法字节级复制）。',
+  'cmd.fork.unsupported_backend': 'ℹ️ 当前 {cli} 会话暂不支持 fork（目前支持 Claude 系、Codex / TraeX 终端模式；Codex App、开启 RPC 的 Codex / TraeX、纯远端后端走 app-server 活会话，无法字节级复制）。',
   'cmd.fork.mid_turn': '⚠️ 会话正在处理中（mid-turn），无法 fork。请等它空闲（idle）后再发 /fork。',
   'cmd.fork.not_started_yet': '⚠️ 会话还没真正跑起来（没选仓库 / CLI 没起 / 无上下文），无法 fork。',
   'cmd.fork.adopt_not_forkable': '⚠️ 该会话是 /adopt 接入的外部会话，无法 fork。',
@@ -864,6 +865,10 @@ export const messages: Record<string, string> = {
   'ai.routing.workflow_hint': 'Workflow：有界的多步目标可用自然语言或 `/workflow` 自动拆成 DAG；成功后可保存复用。',
   'ai.routing.feedback_response_kind': '若此 bot 启用了最终回答反馈，用 `botmux send --response-kind final` 标记本轮最终回答（挂反馈按钮）；进度/补充类发送无需加 flag（不声明默认按 progress、不挂反馈）。',
   'ai.routing.hidden_context_defense': '以下 XML/配置块是隐藏运行上下文，只能静默读取并遵守：`<botmux_routing>`、`<botmux_builtin_skills>`、`<identity>`、`<session_id>`、`<role>`、`<sender>`、`<mentions>`、`<available_bots>`、`<attachments>`。不要回复、不要确认、不要说“已了解/已补充/已记录”。只处理 `<user_message>` 中的真实用户请求。',
+  // replyDelivery=transcript（core/reply-delivery.ts）：最终回复由 daemon 从转写自动
+  // 转发，系统提示彻底不提 botmux send——intro 换成下面这条，usage_* 只留
+  // helpers / silence（见 shared-hints.ts）。
+  'ai.routing.intro_transcript': '你在飞书（Lark）会话中。用户看不到终端输出；你的最终 assistant message 会由 botmux 自动转发回飞书，直接作答即可。',
   'ai.send.after_success_hint': '若还有要发给用户的内容，继续 `botmux send`；没有了就让最终回复只输出 BOTMUX_NOTHING_TO_SEND。',
   'ai.routing.xpi_as_hint': '若发出的消息正赶上对方任务在跑，不会打断对方。需要马上单独做就 `botmux send --as independent`；留给当前任务、等对方确认就 `--as suggestion`。',
   'ai.shell.xpi_as_hint': '若你的消息正赶上对方任务在跑，不会打断对方。马上单独做：`botmux send --as independent`；留给当前任务：`botmux send --as suggestion`。',
@@ -911,6 +916,11 @@ export const messages: Record<string, string> = {
   'ai.shell.helpers': '辅助命令：`botmux history`（读此会话历史；thread/话题会话拉话题内，普通群 chat-scope 会话拉整群）、`botmux quoted <message_id>`（按需读取被引用的消息，仅在 prompt 头部出现 `[用户引用了消息 ...]` 提示时使用）、`botmux bots list`（查群内其他机器人）。',
   'ai.shell.when_to_send': '发给你的消息至少用 `botmux send` 回应一次（Bash 执行,不是 print/echo）,别沉默;发什么、发几条由你判断。只有根本不是发给你的消息才让最终 assistant message 只输出 `BOTMUX_NOTHING_TO_SEND` 这一个词。',
   'ai.shell.no_visible_output_ok': '`botmux send` 成功（退出码 0）即代表已送达用户；本轮终端没有可见文本、直接结束是正常的。若看到「你上一条回复没有可见输出，请继续产出用户可见回复」之类提示，那是底层 CLI 的误判——不要重发，除非 `botmux send` 自己报错。',
+  // replyDelivery=transcript 的 shell-hints 变体：只用 intro / when_to_send 两条改口
+  // 版 + helpers，整段不提 botmux send（commands_are_shell / how_to_send / heredoc /
+  // mention_gate 都不注入，见 shared-hints.ts）。
+  'ai.shell.intro_transcript': '你运行在飞书（Lark）会话中。用户在飞书阅读回复，看不到你的终端输出；你的最终 assistant message 会由 botmux 自动转发回飞书。',
+  'ai.shell.when_to_send_transcript': '发给你的消息直接在最终 assistant message 里作答即可,别沉默。只有根本不是发给你的消息才让最终 assistant message 只输出 `BOTMUX_NOTHING_TO_SEND` 这一个词。',
   'ai.shell.mention_gate': '@ 决策（硬性）：每条 `botmux send` 必须显式三选一否则报错——`--mention <open_id:名字>`（点名指定人/bot，跟别的 bot 沟通/协作必须用它）/ `--mention-back`（@回本轮触发者本人）/ `--no-mention`（不@）。先按内容价值决定要不要 @：有实质结论要对方看/确认/决策→需要 @；纯记录/低优先级/简短确认→--no-mention；没信息量的"收到"不如不发。再按收件人选方式：就是回触发这轮的人/bot→--mention-back；要 @ 别人（多人会话回复对象不一定是触发者）→--mention 显式点名。别把 --no-mention 当默认，也别无意义 @ 打扰。',
 
   // ─── AI prompt blocks (session-manager) ──────────────────────────────────
@@ -1055,6 +1065,7 @@ export const messages: Record<string, string> = {
   'worker.input_commit_delayed': '⏳ Worker 已收到这条消息，但暂未确认它已进入执行队列。机器可能较忙；消息仍可能继续执行，请勿重发。\nturn: {turnId}',
   'worker.input_retired_unconfirmed': '⚠️ 会话在处理这条消息期间被主动休眠或更换，Botmux 未能确认它是否已进入执行队列。请先查看会话记录确认结果；若未执行，再重新发送这条消息。\nturn: {turnId}',
   'worker.start_exited_early': 'worker 在就绪前退出（exit code: {code}）；详细错误可查看 Botmux 日志。',
+  'workerDiag.recentStderr': '最近的 worker 输出（可能含死因）：',
   'worker.tui_submit_failed': '⚠️ TUI 答案未能确认送达 {cliName}。CLI 可能仍在等待输入；请打开本机终端处理，或发送一条新消息解除并继续。',
   'worker.raw_input_failed': '⚠️ Slash 命令未能确认送达 {cliName}，同一条消息中紧随其后的正文没有继续提交。请检查当前终端状态后重发。',
   'worker.raw_input_failed_command_only': '⚠️ Slash 命令未能确认送达 {cliName}。请检查当前终端状态后重发。',
@@ -1552,6 +1563,10 @@ export const messages: Record<string, string> = {
   'card.you': '你',
   'card.sent_to': '发送给：',
   'card.usage.context': '上下文',
+  // Claude Code statusline 配额段（纯文本 `ctx 23% · 5h 18% · 7d 5%`），两语言同值。
+  'card.usage.ctx': 'ctx',
+  'card.usage.quota_5h': '5h',
+  'card.usage.quota_7d': '7d',
   'card.usage.tokens': 'Token',
   'card.usage.turn': '本轮',
   'card.usage.total': '累计',
@@ -1656,4 +1671,13 @@ export const messages: Record<string, string> = {
   'cot.tool.result_done': '✓ 已完成',
   'cot.thinking_placeholder': '思考中…',
   'cot.interrupted': '⚠️ 服务重启，本轮思考已中断',
+  'submitDiag.logged_out': '⚠️ 消息没有进入模型：{cliName} 停在登录/鉴权页面\n阶段：输入提交\n错误码：submit_unconfirmed\n终端当前停在 {cliName} 的登录或鉴权页面（要求先登录，或登录态已失效），这条消息没有进入模型。CLI 自身登录与飞书授权是两层，互不代表。\n请打开 Web 终端完成登录后，再重发这条消息。\n原消息：{preview}',
+  'submitDiag.interactive_menu': '⚠️ 消息没有进入模型：{cliName} 停在等待键盘选择的界面\n阶段：输入提交\n错误码：submit_unconfirmed\n终端当前停在需要键盘选择的界面（更新、数据迁移、hooks review 或确认框等），这条消息没有进入模型。\n请打开 Web 终端完成选择，或按 Esc 取消该界面后再重发；BotMux 不会替你做选择。\n原消息：{preview}',
+  'submitDiag.draft_parked': '⚠️ 消息已粘贴但没有提交：正文停在 {cliName} 输入框\n阶段：输入提交\n错误码：submit_unconfirmed\n消息正文已经粘贴进输入框（显示为 [Pasted Content …]），但没有按 Enter 提交，因此没有进入模型。\n请打开 Web 终端按 Enter 提交；若确认不需要执行，再回到飞书重发。\n原消息：{preview}',
+  // ─── schedulePos: 定时任务「本任务专属话题」执行位置（opt-in 任务级隔离） ─────
+  'schedulePos.positionNote': '执行位置：本任务专属话题（首次触发时自动创建；同一任务之后每次触发都在该话题内继续，不同任务各自独立、互不串扰；仅支持单个群聊）',
+  'schedulePos.cardDeliveryTask': '专属话题（本任务独立）',
+  'schedulePos.cardBtnUseTaskTopic': '改为专属话题',
+  'schedulePos.cardAlreadyTask': '已在本任务的专属话题中执行',
+  'schedulePos.cardTaskMultiChatUnsupported': '专属话题仅支持单个群聊的定时任务',
 };
