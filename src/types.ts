@@ -342,8 +342,6 @@ export interface Session {
    * independently-created session.
    */
   crossPrincipalInterruptions?: CrossPrincipalInterruption[];
-  /** Host-created group bootstrap, not an individual user's task. */
-  autoStartedOnGroupJoin?: boolean;
   /**
    * Narrow XPI fallback coordination for an independent child that could not
    * obtain an isolated worktree and therefore shares its source session's cwd.

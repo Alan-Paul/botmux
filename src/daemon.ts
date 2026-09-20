@@ -361,7 +361,7 @@ import { fillNativeTopicId } from './core/native-topic-id.js';
 import { findOnlineDaemon, listOnlineDaemons } from './utils/daemon-discovery.js';
 import { beginReplyTargetTurn, buildTurnParticipantsFrom, chatSessionAnsweredRootAtTopLevel, fallbackTurnId, isSubstituteTurn, pickTurnReplyTarget, resolveInboundReplyTarget, resolveSessionReplyTarget, syncReplyTargetState } from './core/reply-target.js';
 import { sameTrustedPrincipal } from './core/active-turn-authority.js';
-import { isCollaborativeOncallInput, trustedSessionController } from './core/trusted-session-controller.js';
+import { isSerialGroupInput, trustedSessionController } from './core/trusted-session-controller.js';
 import {
   continueCrossPrincipalOwnerWait,
   crossPrincipalOwnerWaitDisposition,
@@ -21517,7 +21517,6 @@ async function handleBotAdded(
     const now = Date.now();
     session.larkAppId = larkAppId;
     session.ownerOpenId = operatorOpenId;
-    session.autoStartedOnGroupJoin = !forced;
     session.lastCallerOpenId = operatorOpenId;
     session.lastMessageAt = new Date(now).toISOString();
     session.scope = scope;
@@ -23258,11 +23257,7 @@ async function handleThreadReplyAdmitted(
   // Daemon-side hint: divert an already-known different principal before IPC.
   // The worker remains authoritative and hands a raced rejection back through
   // onOrdinaryImInputRejected; both paths converge on the same durable record.
-  const collaborativeOncallInput = isCollaborativeOncallInput(ds, threadTrustedCaller);
-  if (collaborativeOncallInput && !ds.session.autoStartedOnGroupJoin) {
-    ds.session.autoStartedOnGroupJoin = true;
-    sessionStore.updateSession(ds.session);
-  }
+  const serialGroupInput = isSerialGroupInput(ds, threadTrustedCaller);
   //
   // Gated by the experimental XPI switch (default OFF). Off ⇒ fall through to
   // the existing-owner route below, i.e. deliver the message like any other —
@@ -23271,7 +23266,7 @@ async function handleThreadReplyAdmitted(
   const activePrincipalTurn = ds.activeInteractiveTurn;
   if (config.crossPrincipalInterruption
     && activePrincipalTurn
-    && !collaborativeOncallInput
+    && !serialGroupInput
     && threadTrustedCaller
     && !sameTrustedPrincipal(activePrincipalTurn.caller, threadTrustedCaller)
     && !sameTrustedPrincipal(activePrincipalTurn.controller, threadTrustedCaller)) {

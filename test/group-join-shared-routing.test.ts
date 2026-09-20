@@ -1416,7 +1416,7 @@ async function collaborativeSession() {
     allowedUsers: ['ou_owner', 'ou_other'], autoStartOnGroupJoin: true,
     autoStartOnGroupJoinPrompt: 'Investigate the shared incident',
     defaultWorkingDir: workingDir, regularGroupReplyMode: 'shared',
-    oncallChats: [{ chatId, workingDir }] });
+    groupSerialInput: { [chatId]: true } });
   await daemon.__testOnly_handleBotAdded(chatId, 'ou_owner', appId);
   const ds = daemon.__testOnly_activeSessions.get(types.sessionKey(chatId, appId))!;
   const owner = { requestUserOpenId: 'ou_owner', requestLarkAppId: appId, senderType: 'user' as const };
@@ -1424,7 +1424,7 @@ async function collaborativeSession() {
   return { ds, owner, other: { ...owner, requestUserOpenId: 'ou_other' } };
 }
 
-describe('collaborative Oncall input', () => {
+describe('configured serial group input', () => {
   it.each(['false', 'true'])('admits another member in order without an owner question with XPI=%s', async (xpiEnabled) => {
     vi.stubEnv('BOTMUX_XPI_ENABLED', xpiEnabled);
     const { ds, other } = await collaborativeSession();
@@ -1445,24 +1445,27 @@ describe('collaborative Oncall input', () => {
     expect(mocks.registerHostAsk).not.toHaveBeenCalled();
   });
 
-  it('limits the policy to authenticated, managed, automatically started Oncall groups', async () => {
+  it('uses only explicit group configuration while retaining authenticated managed-session boundaries', async () => {
     const { ds, other } = await collaborativeSession();
-    const allows = modules.policy.isCollaborativeOncallInput;
-    expect(ds.session.autoStartedOnGroupJoin).toBe(true);
+    const allows = modules.policy.isSerialGroupInput;
     expect(allows(ds, other)).toBe(true);
     expect(allows(ds)).toBe(false);
     expect(allows(ds, { ...other, requestLarkAppId: 'foreign' })).toBe(false);
     expect(allows(ds, { ...other, source: 'schedule_creator', taskId: 'schedule' })).toBe(false);
     expect(allows({ ...ds, chatType: 'p2p' }, other)).toBe(false);
-    expect(allows({ ...ds, chatId: 'oc_unbound' }, other)).toBe(false);
+    expect(allows({ ...ds, chatId: 'oc_unconfigured' }, other)).toBe(false);
     expect(allows({ ...ds, adoptedFrom: 'existing-pane' } as typeof ds, other)).toBe(false);
-    delete ds.session.autoStartedOnGroupJoin;
+    // The same configured group works for manually created topics without join provenance.
     ds.session.turnReplyContexts = {};
-    expect(allows(ds, other)).toBe(false);
-    ds.session.turnReplyContexts = { join_legacy: {} as any };
     expect(allows(ds, other)).toBe(true);
-    ds.session.autoStartedOnGroupJoin = false;
+    const cfg = modules.registry.getBot(ds.larkAppId).config;
+    cfg.oncallChats = [{ chatId: ds.chatId, workingDir: '/tmp' }];
+    cfg.groupSerialInput = undefined;
     expect(allows(ds, other)).toBe(false);
+    cfg.groupSerialInput = { [ds.chatId]: false };
+    expect(allows(ds, other)).toBe(false);
+    cfg.groupSerialInput[ds.chatId] = true;
+    expect(allows(ds, other)).toBe(true);
   });
 });
 
