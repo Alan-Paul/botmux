@@ -44,7 +44,7 @@ interface RunOpts {
   ignoreOutput?: boolean;
 }
 
-function runStatusline(opts: RunOpts): Promise<{ status: number | null; stdout: Buffer; stderr: string; elapsedMs: number }> {
+function runStatusline(opts: RunOpts): Promise<{ status: number | null; stdout: Buffer; stderr: string; closedAtMs: number }> {
   return new Promise((resolve, reject) => {
     const env: NodeJS.ProcessEnv = { ...process.env, SESSION_DATA_DIR: opts.dataDir, ...opts.extraEnv };
     delete env.BOTMUX_SESSION_ID;
@@ -52,7 +52,6 @@ function runStatusline(opts: RunOpts): Promise<{ status: number | null; stdout: 
     delete env.BOTMUX_WORKFLOW;
     if (opts.sessionId) env.BOTMUX_SESSION_ID = opts.sessionId;
     if (opts.chain) env.BOTMUX_STATUSLINE_CHAIN = opts.chain;
-    const started = Date.now();
     const child = spawnTsScript(
       CLI_PATH,
       ['statusline'],
@@ -64,7 +63,7 @@ function runStatusline(opts: RunOpts): Promise<{ status: number | null; stdout: 
     child.stderr?.setEncoding('utf8');
     child.stderr?.on('data', (chunk: string) => { stderr += chunk; });
     child.once('error', reject);
-    child.once('close', status => resolve({ status, stdout: Buffer.concat(out), stderr, elapsedMs: Date.now() - started }));
+    child.once('close', status => resolve({ status, stdout: Buffer.concat(out), stderr, closedAtMs: Date.now() }));
     child.stdin!.end(opts.stdin);
   });
 }
@@ -120,7 +119,7 @@ describe('botmux statusline', () => {
     expect(existsSync(statuslineFilePath(dataDir, SID))).toBe(true);
   });
 
-  it('⑤ chain 挂死（sleep 30）：看门狗 ≤ 12s 内 exit 0', async () => {
+  it('⑤ chain 挂死（sleep 30）：开始转发后看门狗 ≤ 12s 内 exit 0', async () => {
     const dataDir = makeDataDir();
     const r = await runStatusline({
       dataDir,
@@ -130,7 +129,12 @@ describe('botmux statusline', () => {
       ignoreOutput: true,
     });
     expect(r.status).toBe(0);
-    expect(r.elapsedMs).toBeLessThanOrEqual(12_000);
+    // 快照在转发前写入；CLI/tsx 冷启动不属于 chain 的 10s 看门狗预算。
+    const snap = JSON.parse(readFileSync(statuslineFilePath(dataDir, SID), 'utf-8'));
+    expect(typeof snap.ts).toBe('number');
+    const elapsedMs = r.closedAtMs - snap.ts;
+    expect(elapsedMs).toBeGreaterThan(9_000);
+    expect(elapsedMs).toBeLessThanOrEqual(12_000);
   }, 20_000);
 
   it('⑥ 非 JSON stdin：不落盘、exit 0', async () => {
