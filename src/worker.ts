@@ -24141,6 +24141,7 @@ async function spawnCli(
         dataDir: scratchDataDir,
         storage,
         tmpfsSizeMb: cfg.scratchTmpfsSizeMb,
+        tempDir: sessionScratchDir,
         net: spawnNetworkShape.netEnabled,
         chdir: cfg.workingDir,
         home: scratchHome,

@@ -81,6 +81,21 @@ function cleanup(f: ReturnType<typeof fixture>, plan: ReturnType<typeof prepareD
 }
 
 describe.skipIf(!hasBwrap)('sandbox session-data root', () => {
+  it('rejects a short temp alias without an exact writable scratch grant', () => {
+    const f = fixture();
+    const scratch = join(f.workspace, 'scratch');
+    const alias = join(f.root, 'short-scratch');
+    mkdirSync(scratch);
+    symlinkSync(scratch, alias);
+    let plan: ReturnType<typeof prepareDirectSandbox> = null;
+    try {
+      expect(() => {
+        plan = prepareDirectSandbox({ sessionId: 'session', dataDir: f.dataDir, policy: f.policy,
+          chdir: f.workspace, home: f.home, cliBin: '/bin/true', cliArgs: [], tempDir: alias });
+      }).toThrow(/exact writable scratch grant/);
+    } finally { cleanup(f, plan); }
+  });
+
   it('keeps a short scratch alias writable without bypassing deny masks or exposing siblings', () => {
     const f = fixture();
     const scratch = join(f.root, 'cache', 'session');
